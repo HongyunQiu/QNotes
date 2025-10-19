@@ -1,4 +1,42 @@
-Q Notes
-This is a cloud based Notes for personal using and also support multiple users
-It use the Editor.js as the editor.
-It has two part in UI. Left is the file selection (folder sytle). And right is the editor area.
+QNotes 云协作笔记
+=================
+
+QNotes 是一个基于 Web 的云协作笔记应用，内置 Editor.js 所见即所得编辑器，支持多人账号登录、笔记层级管理以及编辑互斥锁，确保同一时间只有一位用户可以编辑同一篇笔记，其余用户仍可实时查看内容。
+
+主要特性
+--------
+
+* 👥 账号系统：支持注册、登录与退出，密码采用 `bcrypt` 哈希存储。
+* 🗂️ 层级目录：左侧展示树状笔记列表，可在当前笔记下快速创建子笔记。
+* 📝 Editor.js：右侧使用 Editor.js 作为富文本编辑器，支持标题、段落、列表等常见块。
+* 🔒 编辑锁：同一篇笔记只允许一人编辑，其他人进入时将看到锁定提示；编辑锁会定期续期并在保存或退出后自动释放。
+* 💾 SQLite 存储：使用 `better-sqlite3` 作为嵌入式数据库，便于部署与备份。
+
+快速开始
+--------
+
+1. 安装依赖
+
+   ```bash
+   npm install
+   ```
+
+2. 启动服务
+
+   ```bash
+   npm start
+   ```
+
+3. 浏览器访问 `http://localhost:3000`，注册账号后即可开始使用。
+
+环境变量
+--------
+
+| 变量名                | 说明                               | 默认值                 |
+| --------------------- | ---------------------------------- | ---------------------- |
+| `PORT`                | Express 服务监听端口               | `3000`                 |
+| `JWT_SECRET`          | 用于签发与校验 JWT 的密钥          | `super-secret-qnotes-key` |
+| `DB_FILE`             | SQLite 数据库文件路径              | `./data/qnotes.db`     |
+| `LOCK_DURATION_SECONDS` | 编辑锁默认持续时间（秒）          | `300`                  |
+
+前端构建位于 `public/` 目录，后端 API 由 `src/server.js` 提供，可根据需要扩展权限体系、共享逻辑或实时同步等能力。

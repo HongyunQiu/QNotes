@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QNotes 云协作笔记</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/paragraph@latest"></script>
+  </head>
+  <body>
+    <div id="auth-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>登录 / 注册</h2>
+        <form id="auth-form">
+          <label>
+            用户名
+            <input type="text" id="username" required />
+          </label>
+          <label>
+            密码
+            <input type="password" id="password" required />
+          </label>
+          <div class="actions">
+            <button type="submit" data-mode="login">登录</button>
+            <button type="button" id="register-btn">注册</button>
+          </div>
+          <p class="form-message" id="auth-message"></p>
+        </form>
+      </div>
+    </div>
+
+    <header class="topbar">
+      <div class="brand">QNotes</div>
+      <div class="spacer"></div>
+      <div class="user-info">
+        <span id="current-user"></span>
+        <button id="logout-btn">退出</button>
+      </div>
+    </header>
+
+    <main class="app">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span>我的笔记</span>
+          <button id="new-note-btn" title="新建笔记">＋</button>
+        </div>
+        <ul id="note-tree" class="note-tree"></ul>
+      </aside>
+      <section class="editor-panel">
+        <div class="editor-header">
+          <input id="note-title" placeholder="无标题笔记" />
+          <div class="editor-actions">
+            <button id="edit-toggle-btn">开始编辑</button>
+            <button id="save-btn" disabled>保存</button>
+            <button id="delete-btn" class="danger" disabled>删除</button>
+          </div>
+        </div>
+        <div id="lock-info" class="lock-info hidden"></div>
+        <div id="editor" class="editor-container"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

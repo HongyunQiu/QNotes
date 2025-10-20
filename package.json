@@ -12,6 +12,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@editorjs/editorjs": "^2.31.0",
+    "@editorjs/header": "^2.8.8",
+    "@editorjs/list": "^2.0.8",
+    "@editorjs/paragraph": "^2.11.7",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^12.4.1",
     "dotenv": "^16.3.1",

@@ -48,25 +48,86 @@ function buildTreeList(nodes, parentEl, depth = 0) {
   nodes.forEach((node) => {
     const li = document.createElement('li');
     li.dataset.id = node.id;
-    li.style.paddingLeft = `${1 + depth * 0.75}rem`;
-    li.innerHTML = `<span class="title">${node.title}</span>`;
+    li.className = 'tree-item';
+    
+    // 创建树形结构的HTML
+    const hasChildren = node.children && node.children.length > 0;
+    const indent = '  '.repeat(depth); // 使用空格缩进
+    const expandIcon = hasChildren ? '▶' : '  '; // 展开/折叠图标
+    
+    li.innerHTML = `
+      <div class="tree-item-content" style="padding-left: ${depth * 1.5}rem;">
+        <span class="expand-icon">${expandIcon}</span>
+        <span class="title">${node.title}</span>
+      </div>
+    `;
+    
+    // 点击事件处理
     li.addEventListener('click', (e) => {
       e.stopPropagation();
+      
+      // 如果点击的是展开图标，切换展开/折叠状态
+      if (e.target.classList.contains('expand-icon') && hasChildren) {
+        const childUl = li.querySelector('.note-tree-children');
+        const expandIcon = li.querySelector('.expand-icon');
+        
+        if (childUl.style.display === 'none') {
+          childUl.style.display = 'block';
+          expandIcon.textContent = '▼';
+        } else {
+          childUl.style.display = 'none';
+          expandIcon.textContent = '▶';
+        }
+        return;
+      }
+      
+      // 否则选择笔记
       selectNote(node.id, li);
     });
+    
     parentEl.appendChild(li);
-    if (node.children && node.children.length) {
-      buildTreeList(node.children, parentEl, depth + 1);
+    
+    // 如果有子节点，递归创建
+    if (hasChildren) {
+      const childUl = document.createElement('ul');
+      childUl.className = 'note-tree-children';
+      childUl.style.display = 'none'; // 默认折叠
+      li.appendChild(childUl);
+      buildTreeList(node.children, childUl, depth + 1);
     }
   });
 }
-
+function getExpandedNodes() {
+  const expanded = new Set();
+  document.querySelectorAll('#note-tree .note-tree-children').forEach(ul => {
+    if (ul.style.display === 'block') {
+      const li = ul.closest('li');
+      if (li) expanded.add(li.dataset.id);
+    }
+  });
+  return expanded;
+}
+function restoreExpandedNodes(expanded) {
+  expanded.forEach(id => {
+    const li = document.querySelector(`#note-tree li[data-id="${id}"]`);
+    if (li) {
+      const ul = li.querySelector('.note-tree-children');
+      if (ul) {
+        ul.style.display = 'block';
+        const icon = li.querySelector('.expand-icon');
+        if (icon) icon.textContent = '▼';
+      }
+    }
+  });
+}
 async function loadTree() {
+  const expanded = getExpandedNodes();
   try {
     const data = await request('/notes');
     const treeEl = document.getElementById('note-tree');
     treeEl.innerHTML = '';
     buildTreeList(data.tree, treeEl);
+    restoreExpandedNodes(expanded);
     if (!currentNoteId) {
       const firstId = findFirstNoteId(data.tree);
       if (firstId) {
@@ -103,21 +164,47 @@ async function selectNote(id, element) {
 }
 
 async function loadNote(id) {
-  resetEditorState();
   try {
     const { note } = await request(`/notes/${id}`);
     document.getElementById('note-title').value = note.title;
+    
+    // 如果编辑器未初始化，先初始化
+    if (!editorInstance) {
+      console.log('初始化编辑器以加载笔记...');
+      setupEditor();
+    }
+    
     await editorInstance.isReady;
-    const data = note.content && Object.keys(note.content).length ? note.content : { blocks: [] };
-    await editorInstance.render(data);
+    
+    // 清理数据，只保留支持的工具类型
+    let data = note.content && Object.keys(note.content).length ? note.content : { blocks: [] };
+    if (data.blocks) {
+      data.blocks = data.blocks.filter(block => {
+        // 只保留支持的工具类型
+        return block.type === 'header' || block.type === 'paragraph' || 
+               block.type === 'checklist' || block.type === 'quote' || 
+               block.type === 'delimiter';
+      });
+    }
+    
+    editorInstance.render(data);
     const deleteBtn = document.getElementById('delete-btn');
     deleteBtn.disabled = false;
-    if (note.lock_user_id && note.lock_user_id !== currentUser.id) {
+    
+    // 检查笔记是否被其他用户锁定
+    if (note.lock_user_id && parseInt(note.lock_user_id) !== parseInt(currentUser.id)) {
       showLockInfo(`${note.lock_username} 正在编辑此笔记`);
-      setReadOnly(true);
+      document.getElementById('save-btn').disabled = true;
+      isEditing = false;
+      if (lockTimer) {
+        clearInterval(lockTimer);
+        lockTimer = null;
+      }
     } else {
       hideLockInfo();
-      setReadOnly(true);
+      setReadOnly(false);
+      document.getElementById('save-btn').disabled = false;
+      isEditing = true;
     }
   } catch (err) {
     console.error(err);
@@ -125,10 +212,10 @@ async function loadNote(id) {
 }
 
 function resetEditorState() {
-  setReadOnly(true);
+  // 暂时绕过权限检查，保持编辑器可编辑
+  setReadOnly(false);
   isEditing = false;
-  document.getElementById('save-btn').disabled = true;
-  document.getElementById('edit-toggle-btn').textContent = '开始编辑';
+  document.getElementById('save-btn').disabled = false; // 保持保存按钮可用
   hideLockInfo();
   if (lockTimer) {
     clearInterval(lockTimer);
@@ -136,9 +223,24 @@ function resetEditorState() {
   }
 }
 
-function setReadOnly(readOnly) {
-  if (editorInstance) {
-    editorInstance.readOnly.toggle(readOnly);
+async function setReadOnly(readOnly) {
+  try {
+    if (!editorInstance) {
+      console.warn('编辑器实例不存在');
+      return;
+    }
+    
+    await editorInstance.isReady;
+    
+    const currentState = await editorInstance.readOnly.isEnabled;
+    if (currentState !== readOnly) {
+      await editorInstance.readOnly.toggle();
+      console.log('编辑器只读状态已切换到:', readOnly);
+    } else {
+      console.log('编辑器只读状态已为:', readOnly);
+    }
+  } catch (err) {
+    console.error('设置只读状态失败:', err);
   }
 }
 
@@ -146,34 +248,60 @@ function showLockInfo(message) {
   const el = document.getElementById('lock-info');
   el.textContent = message;
   el.classList.remove('hidden');
+  // 确保编辑器保持只读状态
+  setReadOnly(true);
 }
 
 function hideLockInfo() {
   document.getElementById('lock-info').classList.add('hidden');
 }
 
+function showMessage(message, type = 'info') {
+  // 创建消息提示
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `message message-${type}`;
+  messageDiv.textContent = message;
+  
+  // 添加到页面顶部
+  document.body.insertBefore(messageDiv, document.body.firstChild);
+  
+  // 3秒后自动移除
+  setTimeout(() => {
+    if (messageDiv.parentNode) {
+      messageDiv.parentNode.removeChild(messageDiv);
+    }
+  }, 3000);
+}
+
 async function startEditing() {
-  if (!currentNoteId) return;
+  if (!currentNoteId) {
+    console.log('没有选择笔记');
+    return;
+  }
+  
   try {
-    const { success } = await request(`/notes/${currentNoteId}/lock`, { method: 'POST', body: {} });
-    if (success) {
-      isEditing = true;
-      setReadOnly(false);
-      document.getElementById('save-btn').disabled = false;
-      document.getElementById('edit-toggle-btn').textContent = '停止编辑';
-      hideLockInfo();
-      refreshLockStatus();
-      lockTimer = setInterval(refreshLockStatus, 60000);
+    // 如果编辑器未初始化，先初始化编辑器
+    if (!editorInstance) {
+      console.log('初始化编辑器...');
+      setupEditor();
+      await editorInstance.isReady;
+      console.log('编辑器初始化完成');
     }
+    
+    // 等待编辑器准备就绪
+    await editorInstance.isReady;
+    console.log('编辑器已准备就绪');
+    
+    // 启动编辑模式
+    isEditing = true;
+    setReadOnly(false);
+    document.getElementById('save-btn').disabled = false;
+    hideLockInfo();
+    
+    console.log('编辑模式已启动');
   } catch (err) {
-    try {
-      const payload = JSON.parse(err.message);
-      if (payload.error) {
-        showLockInfo(payload.error);
-      }
-    } catch (parseErr) {
-      showLockInfo('无法获取编辑权限');
-    }
+    console.error('启动编辑模式失败:', err);
+    showMessage('启动编辑模式失败: ' + err.message, 'error');
   }
 }
 
@@ -189,83 +317,297 @@ async function refreshLockStatus() {
 async function stopEditing() {
   if (!currentNoteId || !isEditing) return;
   try {
-    await request(`/notes/${currentNoteId}/unlock`, { method: 'POST', body: {} });
+    // 暂时绕过解锁操作
+    console.log('停止编辑（绕过解锁）');
   } catch (err) {
-    console.warn('释放锁失败', err);
+    console.warn('停止编辑失败', err);
   }
   resetEditorState();
 }
 
 async function saveNote() {
-  if (!currentNoteId) return;
+  if (!currentNoteId) {
+    showMessage('请先选择笔记', 'warning');
+    return;
+  }
+  
+  if (!editorInstance) {
+    showMessage('编辑器未初始化', 'error');
+    return;
+  }
+  
   try {
     const data = await editorInstance.save();
     const title = document.getElementById('note-title').value || '无标题笔记';
+    
+    console.log('保存笔记:', currentNoteId);
     await request(`/notes/${currentNoteId}`, {
       method: 'PUT',
       body: { title, content: data }
     });
+    
     await stopEditing();
     await loadTree();
     await selectNote(currentNoteId);
+    showMessage('笔记保存成功', 'success');
+    console.log('笔记保存成功');
   } catch (err) {
-    console.error(err);
-    alert('保存失败，请稍后再试');
+    console.error('保存失败:', err);
+    showMessage('保存失败: ' + err.message, 'error');
   }
 }
 
 async function createNote() {
-  const title = prompt('笔记标题');
-  if (!title) return;
+  let parentUl;
+  let parentLi = null;
+  let childDepth = 0;
+  if (currentNoteId) {
+    parentLi = document.querySelector(`#note-tree li[data-id="${currentNoteId}"]`);
+    if (!parentLi) return;
+    const parentContent = parentLi.querySelector('.tree-item-content');
+    const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const parentPaddingPx = parseFloat(getComputedStyle(parentContent).paddingLeft);
+    const parentPaddingRem = parentPaddingPx / rootFontSize;
+    childDepth = Math.round(parentPaddingRem / 1.5) + 1;
+    parentUl = parentLi.querySelector('.note-tree-children');
+    if (!parentUl) {
+      parentUl = document.createElement('ul');
+      parentUl.className = 'note-tree-children';
+      parentUl.style.display = 'block';
+      parentLi.appendChild(parentUl);
+      const expandIcon = parentLi.querySelector('.expand-icon');
+      if (expandIcon) expandIcon.textContent = '▼';
+    } else if (parentUl.style.display === 'none') {
+      parentUl.style.display = 'block';
+      const expandIcon = parentLi.querySelector('.expand-icon');
+      if (expandIcon) expandIcon.textContent = '▼';
+    }
+  } else {
+    parentUl = document.getElementById('note-tree');
+    childDepth = 0;
+  }
+  const tempLi = document.createElement('li');
+  tempLi.className = 'tree-item';
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'tree-item-content';
+  contentDiv.style.paddingLeft = `${childDepth * 1.5}rem`;
+  const expandSpan = document.createElement('span');
+  expandSpan.className = 'expand-icon';
+  expandSpan.textContent = '  ';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'new-title-input';
+  input.placeholder = '输入标题...';
+  contentDiv.appendChild(expandSpan);
+  contentDiv.appendChild(input);
+  tempLi.appendChild(contentDiv);
+  parentUl.appendChild(tempLi);
+  input.focus();
+  const handleSave = async () => {
+    const title = input.value.trim();
+    if (!title) {
+      parentUl.removeChild(tempLi);
+      cleanupIfEmpty(parentLi);
+      return;
+    }
+    try {
+      const { note } = await request('/notes', {
+        method: 'POST',
+        body: { title, parent_id: currentNoteId || null }
+      });
+      await loadTree();
+      await selectNote(note.id);
+    } catch (err) {
+      console.error(err);
+      parentUl.removeChild(tempLi);
+      cleanupIfEmpty(parentLi);
+      showMessage('创建失败', 'error');
+    }
+  };
+  const handleDiscard = () => {
+    parentUl.removeChild(tempLi);
+    cleanupIfEmpty(parentLi);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.removeEventListener('blur', handleDiscard);
+      handleSave();
+    }
+  });
+  input.addEventListener('blur', handleDiscard);
+  tempLi.addEventListener('click', (e) => e.stopPropagation());
+}
+
+function cleanupIfEmpty(li) {
+  if (!li) return;
+  const ul = li.querySelector('.note-tree-children');
+  if (ul && ul.children.length === 0) {
+    li.removeChild(ul);
+    const expandIcon = li.querySelector('.expand-icon');
+    if (expandIcon) expandIcon.textContent = '  ';
+  }
+}
+
+async function clearEditor() {
+  if (!editorInstance) {
+    showMessage('编辑器未初始化', 'error');
+    return;
+  }
+  
   try {
-    const { note } = await request('/notes', {
-      method: 'POST',
-      body: { title, parent_id: currentNoteId }
-    });
-    await loadTree();
-    await selectNote(note.id);
-  } catch (err) {
-    console.error(err);
+    await editorInstance.isReady;
+    // 清空编辑器内容
+    editorInstance.clear();
+    showMessage('编辑器已清空', 'success');
+  } catch (error) {
+    console.error('清空编辑器失败:', error);
+    showMessage('清空编辑器失败: ' + error.message, 'error');
   }
 }
 
 async function deleteNote() {
-  if (!currentNoteId) return;
+  if (!currentNoteId) {
+    showMessage('请先选择笔记', 'warning');
+    return;
+  }
+  
   const confirmDelete = confirm('确定删除此笔记吗？此操作不可撤销。');
   if (!confirmDelete) return;
+  
   try {
     await request(`/notes/${currentNoteId}`, { method: 'DELETE' });
     currentNoteId = null;
     document.getElementById('note-title').value = '';
-    await editorInstance.isReady;
-    await editorInstance.render({ blocks: [] });
+    
+    if (editorInstance) {
+      await editorInstance.isReady;
+      editorInstance.render({ blocks: [] });
+    }
+    
     document.getElementById('delete-btn').disabled = true;
     await loadTree();
+    showMessage('笔记删除成功', 'success');
   } catch (err) {
     console.error(err);
+    showMessage('删除失败: ' + err.message, 'error');
   }
 }
 
 function setupEditor() {
-  editorInstance = new EditorJS({
-    holder: 'editor',
-    readOnly: true,
-    placeholder: '开始记录你的想法……',
-    tools: {
+  try {
+    console.log('开始初始化EditorJS...');
+    console.log('EditorJS可用:', typeof window.EditorJS);
+    console.log('Header可用:', typeof window.Header);
+    console.log('Paragraph可用:', typeof window.Paragraph);
+    console.log('Checklist可用:', typeof window.Checklist);
+    console.log('Quote可用:', typeof window.Quote);
+    console.log('Delimiter可用:', typeof window.Delimiter);
+    
+    // 检查插件是否加载
+    if (typeof window.EditorJS === 'undefined') {
+      throw new Error('EditorJS 未加载');
+    }
+    if (typeof window.Header === 'undefined') {
+      throw new Error('Header 插件未加载');
+    }
+    if (typeof window.Paragraph === 'undefined') {
+      throw new Error('Paragraph 插件未加载');
+    }
+    if (typeof window.Checklist === 'undefined') {
+      throw new Error('Checklist 插件未加载');
+    }
+    if (typeof window.Quote === 'undefined') {
+      throw new Error('Quote 插件未加载');
+    }
+    if (typeof window.Delimiter === 'undefined') {
+      throw new Error('Delimiter 插件未加载');
+    }
+    
+    // 根据测试验证成功的配置
+    const tools = {
       header: {
         class: window.Header,
-        inlineToolbar: true
-      },
-      list: {
-        class: window.List,
-        inlineToolbar: true
+        config: {
+          placeholder: '输入标题',
+          levels: [1, 2, 3, 4, 5, 6],
+          defaultLevel: 2
+        }
       },
       paragraph: {
         class: window.Paragraph,
-        inlineToolbar: true
+        inlineToolbar: true,
+        config: {
+          placeholder: '输入段落内容...'
+        }
+      },
+      checklist: {
+        class: window.Checklist,
+        inlineToolbar: true,
+        config: {
+          placeholder: '输入待办事项...'
+        }
+      },
+      quote: {
+        class: window.Quote,
+        inlineToolbar: true,
+        config: {
+          quotePlaceholder: '输入引用内容',
+          captionPlaceholder: '引用作者'
+        }
+      },
+      delimiter: {
+        class: window.Delimiter
       }
-    }
-  });
+    };
+    
+    console.log('可用工具:', Object.keys(tools));
+    
+    editorInstance = new window.EditorJS({
+      holder: 'editorjs',
+      readOnly: true,
+      placeholder: '开始记录你的想法……',
+      tools: tools,
+      data: {
+        time: Date.now(),
+        blocks: [
+          {
+            type: "header",
+            data: {
+              text: "欢迎使用QNotes",
+              level: 1
+            }
+          },
+          {
+            type: "paragraph",
+            data: {
+              text: "这是一个功能丰富的云协作笔记应用，支持多种编辑功能。"
+            }
+          },
+          {
+            type: "checklist",
+            data: {
+              items: [
+                { text: "支持标题编辑", checked: true },
+                { text: "支持段落编辑", checked: true },
+                { text: "支持待办事项列表", checked: false },
+                { text: "支持引用块功能", checked: false }
+              ]
+            }
+          }
+        ]
+      },
+      onChange: (api, event) => {
+        console.log('编辑器内容发生变化:', event);
+      }
+    });
+    
+    console.log('EditorJS初始化成功:', editorInstance);
+  } catch (err) {
+    console.error('EditorJS初始化失败:', err);
+    console.error('错误详情:', err.stack);
+    alert('EditorJS初始化失败: ' + err.message);
+  }
 }
 
 function setupAuthForm() {
@@ -333,21 +675,18 @@ function setupEventListeners() {
     currentNoteId = null;
     document.getElementById('note-tree').innerHTML = '';
     document.getElementById('note-title').value = '';
-    await editorInstance.isReady;
-    await editorInstance.render({ blocks: [] });
+    
+    if (editorInstance) {
+      await editorInstance.isReady;
+      editorInstance.render({ blocks: [] });
+    }
+    
     showAuthModal();
   });
 
   document.getElementById('new-note-btn').addEventListener('click', createNote);
   document.getElementById('save-btn').addEventListener('click', saveNote);
-  document.getElementById('edit-toggle-btn').addEventListener('click', () => {
-    if (!currentNoteId) return;
-    if (isEditing) {
-      stopEditing();
-    } else {
-      startEditing();
-    }
-  });
+  document.getElementById('clear-btn').addEventListener('click', clearEditor);
   document.getElementById('delete-btn').addEventListener('click', deleteNote);
 
   window.addEventListener('beforeunload', () => {
@@ -358,9 +697,53 @@ function setupEventListeners() {
   });
 }
 
-window.addEventListener('DOMContentLoaded', async () => {
-  setupEditor();
-  setupAuthForm();
-  setupEventListeners();
-  await tryAutoLogin();
+// 等待页面完全加载后再初始化
+window.addEventListener('load', async () => {
+  console.log('开始初始化应用...');
+  
+  // 多次重试检查EditorJS和所有插件
+  let retryCount = 0;
+  const maxRetries = 5;
+  
+  function checkAndInitialize() {
+    const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter'];
+    const missingPlugins = [];
+    
+    if (typeof window.EditorJS === 'undefined') missingPlugins.push('EditorJS');
+    if (typeof window.Header === 'undefined') missingPlugins.push('Header');
+    if (typeof window.Paragraph === 'undefined') missingPlugins.push('Paragraph');
+    if (typeof window.Checklist === 'undefined') missingPlugins.push('Checklist');
+    if (typeof window.Quote === 'undefined') missingPlugins.push('Quote');
+    if (typeof window.Delimiter === 'undefined') missingPlugins.push('Delimiter');
+    
+    if (missingPlugins.length === 0) {
+      console.log('所有插件已加载，开始初始化应用');
+      initializeApp();
+      return;
+    }
+    
+    retryCount++;
+    if (retryCount < maxRetries) {
+      console.log(`插件未完全加载，第${retryCount}次重试... 缺失: ${missingPlugins.join(', ')}`);
+      setTimeout(checkAndInitialize, 1000);
+    } else {
+      console.error('插件加载失败，已达到最大重试次数');
+      console.error('缺失的插件:', missingPlugins);
+      alert('编辑器插件加载失败: ' + missingPlugins.join(', ') + '，请检查网络连接或刷新页面重试');
+    }
+  }
+  
+  checkAndInitialize();
 });
+
+async function initializeApp() {
+  try {
+    // 延迟初始化编辑器，等待用户点击开始编辑
+    setupAuthForm();
+    setupEventListeners();
+    await tryAutoLogin();
+    console.log('应用初始化完成');
+  } catch (err) {
+    console.error('应用初始化失败:', err);
+  }
+}

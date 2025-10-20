@@ -5,10 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QNotes 云协作笔记</title>
     <link rel="stylesheet" href="styles.css" />
+    <!-- 使用官方EditorJS文件和验证成功的插件 -->
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/editorjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/header@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@editorjs/list@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/paragraph@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest/dist/bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest/dist/bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@latest/dist/bundle.js"></script>
+    <script>
+      // 检查EditorJS是否加载成功
+      window.addEventListener('load', () => {
+        console.log('页面加载完成');
+        console.log('EditorJS:', typeof window.EditorJS);
+        console.log('Header:', typeof window.Header);
+        console.log('Paragraph:', typeof window.Paragraph);
+        console.log('Checklist:', typeof window.Checklist);
+        console.log('Quote:', typeof window.Quote);
+        console.log('Delimiter:', typeof window.Delimiter);
+        
+        // 检查所有必需的插件
+        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter'];
+        const missingPlugins = [];
+        
+        if (typeof window.EditorJS === 'undefined') missingPlugins.push('EditorJS');
+        if (typeof window.Header === 'undefined') missingPlugins.push('Header');
+        if (typeof window.Paragraph === 'undefined') missingPlugins.push('Paragraph');
+        if (typeof window.Checklist === 'undefined') missingPlugins.push('Checklist');
+        if (typeof window.Quote === 'undefined') missingPlugins.push('Quote');
+        if (typeof window.Delimiter === 'undefined') missingPlugins.push('Delimiter');
+        
+        if (missingPlugins.length > 0) {
+          console.error('以下插件加载失败:', missingPlugins);
+          alert('编辑器插件加载失败: ' + missingPlugins.join(', ') + '，请检查网络连接');
+        } else {
+          console.log('所有插件加载成功');
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="auth-modal" class="modal hidden">
@@ -53,13 +86,13 @@
         <div class="editor-header">
           <input id="note-title" placeholder="无标题笔记" />
           <div class="editor-actions">
-            <button id="edit-toggle-btn">开始编辑</button>
             <button id="save-btn" disabled>保存</button>
+            <button id="clear-btn">清空</button>
             <button id="delete-btn" class="danger" disabled>删除</button>
           </div>
         </div>
         <div id="lock-info" class="lock-info hidden"></div>
-        <div id="editor" class="editor-container"></div>
+        <div id="editorjs" class="editor-container"></div>
       </section>
     </main>
 

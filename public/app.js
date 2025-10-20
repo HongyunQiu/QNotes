@@ -70,7 +70,7 @@ async function loadTree() {
     if (!currentNoteId) {
       const firstId = findFirstNoteId(data.tree);
       if (firstId) {
-        selectNote(firstId);
+        await selectNote(firstId);
       }
     }
   } catch (err) {
@@ -207,7 +207,7 @@ async function saveNote() {
     });
     await stopEditing();
     await loadTree();
-    selectNote(currentNoteId);
+    await selectNote(currentNoteId);
   } catch (err) {
     console.error(err);
     alert('保存失败，请稍后再试');
@@ -223,7 +223,7 @@ async function createNote() {
       body: { title, parent_id: currentNoteId }
     });
     await loadTree();
-    selectNote(note.id);
+    await selectNote(note.id);
   } catch (err) {
     console.error(err);
   }

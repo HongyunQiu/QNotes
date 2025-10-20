@@ -31,14 +31,6 @@ async function request(path, options = {}) {
   }
 }
 
-function showAuthModal() {
-  document.getElementById('auth-modal').classList.remove('hidden');
-}
-
-function hideAuthModal() {
-  document.getElementById('auth-modal').classList.add('hidden');
-}
-
 function setUserInfo(user) {
   currentUser = user;
   document.getElementById('current-user').textContent = user ? `欢迎，${user.username}` : '';
@@ -610,57 +602,20 @@ function setupEditor() {
   }
 }
 
-function setupAuthForm() {
-  const form = document.getElementById('auth-form');
-  const registerBtn = document.getElementById('register-btn');
-  let mode = 'login';
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value.trim();
-    const messageEl = document.getElementById('auth-message');
-    messageEl.textContent = '';
-    try {
-      const data = await request(mode === 'login' ? '/login' : '/register', {
-        method: 'POST',
-        body: { username, password }
-      });
-      authToken = data.token;
-      localStorage.setItem('qnotes_token', authToken);
-      setUserInfo(data.user);
-      hideAuthModal();
-      await loadTree();
-    } catch (err) {
-      try {
-        const payload = JSON.parse(err.message);
-        messageEl.textContent = payload.error || '操作失败';
-      } catch (parseErr) {
-        messageEl.textContent = '操作失败';
-      }
-    }
-  });
-
-  registerBtn.addEventListener('click', () => {
-    mode = mode === 'login' ? 'register' : 'login';
-    registerBtn.textContent = mode === 'login' ? '注册' : '使用已有账号登录';
-    form.querySelector('button[type="submit"]').textContent = mode === 'login' ? '登录' : '注册';
-  });
-}
-
 async function tryAutoLogin() {
   if (!authToken) {
-    showAuthModal();
+    window.location.href = 'login.html';
     return;
   }
   try {
     const { user } = await request('/profile');
     setUserInfo(user);
-    hideAuthModal();
     await loadTree();
   } catch (err) {
     console.warn('自动登录失败', err);
-    showAuthModal();
+    localStorage.removeItem('qnotes_token');
+    authToken = null;
+    window.location.href = 'login.html';
   }
 }
 
@@ -672,16 +627,7 @@ function setupEventListeners() {
     authToken = null;
     localStorage.removeItem('qnotes_token');
     setUserInfo(null);
-    currentNoteId = null;
-    document.getElementById('note-tree').innerHTML = '';
-    document.getElementById('note-title').value = '';
-    
-    if (editorInstance) {
-      await editorInstance.isReady;
-      editorInstance.render({ blocks: [] });
-    }
-    
-    showAuthModal();
+    window.location.href = 'login.html';
   });
 
   document.getElementById('new-note-btn').addEventListener('click', createNote);
@@ -739,7 +685,6 @@ window.addEventListener('load', async () => {
 async function initializeApp() {
   try {
     // 延迟初始化编辑器，等待用户点击开始编辑
-    setupAuthForm();
     setupEventListeners();
     await tryAutoLogin();
     console.log('应用初始化完成');

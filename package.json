@@ -5,14 +5,15 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -File scripts/setup-windows.ps1"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "bcrypt": "^5.1.1",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.4.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2"

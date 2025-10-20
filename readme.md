@@ -40,3 +40,50 @@ QNotes 是一个基于 Web 的云协作笔记应用，内置 Editor.js 所见即
 | `LOCK_DURATION_SECONDS` | 编辑锁默认持续时间（秒）          | `300`                  |
 
 前端构建位于 `public/` 目录，后端 API 由 `src/server.js` 提供，可根据需要扩展权限体系、共享逻辑或实时同步等能力。
+
+Windows 安装说明（Node 22 + better-sqlite3）
+-----------------------------------------
+
+在 Windows 上使用 Node 22 运行本项目时，`better-sqlite3` 可能出现原生绑定加载失败或需要从源码编译的情况（例如报错“Could not locate the bindings file”或 `node-gyp` 提示缺少 Visual Studio）。按以下步骤配置即可：
+
+1. 安装 Visual Studio 2022 Build Tools（含 C++ 工作负载）
+
+   - 使用 PowerShell（管理员）一键安装：
+
+   ```powershell
+   winget install --id Microsoft.VisualStudio.2022.BuildTools --source winget --silent --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive --norestart"
+   ```
+
+   - 如需手动安装，请前往微软官网下载安装“Build Tools for Visual Studio 2022”，并勾选“Desktop development with C++”工作负载。
+
+2. 重新安装 `better-sqlite3`
+
+   - 先尝试直接安装最新版（可能获取到 Node 22 的预编译二进制）：
+
+   ```powershell
+   npm i better-sqlite3@latest
+   ```
+
+   - 若出现网络超时或仍需从源码构建，可强制本地编译（当前 PowerShell 会话有效）：
+
+   ```powershell
+   $env:npm_config_msvs_version = '2022'
+   $env:npm_config_build_from_source = 'true'
+   # 如有占用和残留，先清理
+   Stop-Process -Name node -Force -ErrorAction SilentlyContinue
+   Remove-Item -Recurse -Force node_modules\better-sqlite3 -ErrorAction SilentlyContinue
+   npm i better-sqlite3@latest
+   ```
+
+3. 启动服务
+
+   ```powershell
+   npm start
+   ```
+
+故障排查提示
+------------
+
+- 若看到 `prebuild-install warn install Request timed out`：可能是下载预编译二进制超时，按上面“强制本地编译”步骤处理。
+- 若 `node-gyp` 提示 “Could not find any Visual Studio installation to use”：确认已安装 VS 2022 Build Tools 且包含 C++ 工作负载，并设置了 `npm_config_msvs_version=2022`（在 PowerShell 会话里设置即可）。
+- 若遇到 `EPERM` 删除失败：确保没有正在运行的 `node` 进程，使用 `Stop-Process -Name node -Force` 后再删除模块目录。

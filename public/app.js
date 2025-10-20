@@ -643,6 +643,38 @@ function setupEventListeners() {
   });
 }
 
+function setupResizer() {
+  const sidebar = document.querySelector('.sidebar');
+  const resizer = document.querySelector('.resizer');
+  let isResizing = false;
+  let lastDownX = 0;
+
+  resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    lastDownX = e.clientX;
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', resize);
+    document.addEventListener('mouseup', stopResize);
+  });
+
+  function resize(e) {
+    if (!isResizing) return;
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const newWidth = sidebarRect.width + (e.clientX - lastDownX);
+    lastDownX = e.clientX;
+    if (newWidth > 200 && newWidth < window.innerWidth * 0.5) {
+      sidebar.style.width = `${newWidth}px`;
+    }
+  }
+
+  function stopResize() {
+    isResizing = false;
+    document.body.style.userSelect = '';
+    document.removeEventListener('mousemove', resize);
+    document.removeEventListener('mouseup', stopResize);
+  }
+}
+
 // 等待页面完全加载后再初始化
 window.addEventListener('load', async () => {
   console.log('开始初始化应用...');
@@ -686,6 +718,7 @@ async function initializeApp() {
   try {
     // 延迟初始化编辑器，等待用户点击开始编辑
     setupEventListeners();
+    setupResizer();
     await tryAutoLogin();
     console.log('应用初始化完成');
   } catch (err) {

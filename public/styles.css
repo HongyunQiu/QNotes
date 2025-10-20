@@ -64,6 +64,18 @@ main.app {
   flex-direction: column;
 }
 
+.resizer {
+  width: 5px;
+  height: 100%;
+  background: #ddd;
+  cursor: col-resize;
+  transition: background 0.2s;
+}
+
+.resizer:hover {
+  background: var(--primary);
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;

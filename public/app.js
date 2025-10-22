@@ -11,6 +11,7 @@ let autosaveEnabled = true; // 自动保存开关，默认开启
 let isSaving = false; // 是否正在保存（用于指示灯）
 let lastSaveHadError = false; // 上次保存是否报错
 let currentKeywords = []; // 当前笔记关键词
+let activeSidebarTab = 'notes'; // 'notes' | 'keywords'
 
 function getEl(id) {
   return document.getElementById(id);
@@ -202,6 +203,9 @@ function restoreExpandedNodes(expanded) {
   });
 }
 async function loadTree() {
+  if (activeSidebarTab === 'keywords') {
+    return loadKeywordsIndex();
+  }
   const expanded = getExpandedNodes();
   try {
     const data = await request('/notes');
@@ -215,6 +219,17 @@ async function loadTree() {
         await selectNote(firstId);
       }
     }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function loadKeywordsIndex() {
+  try {
+    const data = await request('/keywords');
+    const treeEl = document.getElementById('note-tree');
+    treeEl.innerHTML = '';
+    buildKeywordIndexList(data.index, treeEl);
   } catch (err) {
     console.error(err);
   }
@@ -737,6 +752,25 @@ function setupEventListeners() {
   });
 
   document.getElementById('new-note-btn').addEventListener('click', createNote);
+  const toggleBtn = document.getElementById('sidebar-mode-toggle');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', async () => {
+      activeSidebarTab = activeSidebarTab === 'notes' ? 'keywords' : 'notes';
+      if (activeSidebarTab === 'notes') {
+        toggleBtn.textContent = '我的笔记';
+        toggleBtn.classList.remove('toggle-keywords');
+        toggleBtn.classList.add('toggle-notes');
+      } else {
+        toggleBtn.textContent = '我的关键词';
+        toggleBtn.classList.remove('toggle-notes');
+        toggleBtn.classList.add('toggle-keywords');
+      }
+      await loadTree();
+    });
+    // 初始状态
+    toggleBtn.textContent = '我的笔记';
+    toggleBtn.classList.add('toggle-notes');
+  }
   document.getElementById('save-btn').addEventListener('click', saveNote);
   document.getElementById('clear-btn').addEventListener('click', clearEditor);
   document.getElementById('delete-btn').addEventListener('click', deleteNote);
@@ -800,6 +834,35 @@ function setupEventListeners() {
         await persistNote({ silent: true, reason: 'visibilitychange' });
       }
     }
+  });
+}
+
+function buildKeywordIndexList(index, parentEl) {
+  index.forEach(group => {
+    const title = document.createElement('div');
+    title.className = 'keyword-group-title';
+    title.textContent = group.keyword;
+    parentEl.appendChild(title);
+
+    const ul = document.createElement('ul');
+    ul.className = 'keyword-group-list';
+    group.notes.forEach(n => {
+      const li = document.createElement('li');
+      li.className = 'tree-item';
+      li.dataset.id = n.id;
+      li.innerHTML = `
+        <div class="tree-item-content" style="padding-left: 1.5rem;">
+          <span class="expand-icon">  </span>
+          <span class="title">${n.title}</span>
+        </div>
+      `;
+      li.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await selectNote(n.id, li);
+      });
+      ul.appendChild(li);
+    });
+    parentEl.appendChild(ul);
   });
 }
 

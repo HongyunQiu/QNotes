@@ -117,6 +117,35 @@ app.get('/api/notes', authenticate, (req, res) => {
   res.json({ tree: buildTree(notes) });
 });
 
+app.get('/api/keywords', authenticate, (req, res) => {
+  // 返回按关键词分组的笔记列表
+  const rows = db.prepare('SELECT id, title, updated_at, keywords FROM notes').all();
+  const map = new Map(); // keyword -> array of notes
+  rows.forEach((row) => {
+    let list = [];
+    try {
+      list = row.keywords ? JSON.parse(row.keywords) : [];
+      if (!Array.isArray(list)) list = [];
+    } catch (e) {
+      list = [];
+    }
+    list.forEach((kw) => {
+      if (typeof kw !== 'string') return;
+      const key = kw.trim();
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({ id: row.id, title: row.title, updated_at: row.updated_at });
+    });
+  });
+  const index = Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([keyword, notes]) => ({
+      keyword,
+      notes: notes.sort((a, b) => a.title.localeCompare(b.title))
+    }));
+  res.json({ index });
+});
+
 app.get('/api/notes/:id', authenticate, (req, res) => {
   cleanupExpiredLocks();
   const note = db.prepare(`

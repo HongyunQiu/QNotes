@@ -85,7 +85,43 @@ main.app {
   font-weight: 600;
 }
 
-.sidebar-header button {
+.tab {
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.toggle-notes { background: var(--primary); color: white; }
+.toggle-keywords { background: #10b981; color: white; }
+
+/* 侧栏模式切换按钮为矩形，适配长文字 */
+.sidebar-header #sidebar-mode-toggle {
+  width: auto;
+  height: auto;
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.keyword-group-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #6b7280;
+  padding: 0.4rem 1rem;
+}
+
+.keyword-group-list {
+  list-style: none;
+  padding: 0 0 0.5rem 0;
+  margin: 0;
+}
+
+.sidebar-header #new-note-btn {
   border: none;
   background: var(--primary);
   color: white;

@@ -5,6 +5,95 @@ let editorInstance = null;
 let currentNoteId = null;
 let isEditing = false;
 let lockTimer = null;
+let isDirty = false; // 编辑内容是否有修改
+let autosaveTimer = null; // 自动保存定时器
+let autosaveEnabled = true; // 自动保存开关，默认开启
+let isSaving = false; // 是否正在保存（用于指示灯）
+let lastSaveHadError = false; // 上次保存是否报错
+let currentKeywords = []; // 当前笔记关键词
+
+function getEl(id) {
+  return document.getElementById(id);
+}
+
+function setSaveIndicator(status, text) {
+  const indicator = getEl('save-indicator');
+  const label = getEl('save-status-text');
+  if (indicator) {
+    indicator.classList.remove('status-ok', 'status-saving', 'status-error');
+    indicator.classList.add(status);
+  }
+  if (label && typeof text === 'string') {
+    label.textContent = text;
+  }
+}
+
+function markDirty() {
+  isDirty = true;
+  // 仅在非错误且非保存中时显示有改动提示
+  if (!isSaving && !lastSaveHadError) {
+    setSaveIndicator('status-ok', '有未保存更改');
+  }
+}
+
+function resetDirtyFlag() {
+  isDirty = false;
+}
+
+async function persistNote({ silent = false, reason = 'manual' } = {}) {
+  if (!currentNoteId || !editorInstance) return;
+  // 保存前复位 flag（按需求）
+  const wasDirty = isDirty;
+  resetDirtyFlag();
+
+  try {
+    isSaving = true;
+    setSaveIndicator('status-saving', '保存中…');
+
+    await editorInstance.isReady;
+    const data = await editorInstance.save();
+    const title = getEl('note-title').value || '无标题笔记';
+
+    await request(`/notes/${currentNoteId}`, {
+      method: 'PUT',
+      body: { title, content: data, keywords: currentKeywords }
+    });
+
+    isSaving = false;
+    lastSaveHadError = false;
+    setSaveIndicator('status-ok', '已保存');
+  } catch (err) {
+    // 失败：回退脏标记，指示灯红色
+    if (wasDirty) {
+      isDirty = true;
+    }
+    isSaving = false;
+    lastSaveHadError = true;
+    setSaveIndicator('status-error', '保存失败');
+    if (!silent) {
+      showMessage('保存失败: ' + err.message, 'error');
+      throw err;
+    }
+  }
+}
+
+function startAutosaveTimer() {
+  stopAutosaveTimer();
+  if (!autosaveEnabled) return;
+  autosaveTimer = setInterval(async () => {
+    if (!autosaveEnabled) return;
+    if (!currentNoteId || !isEditing || !editorInstance) return;
+    if (!isDirty) return;
+    await persistNote({ silent: true, reason: 'autosave' });
+  }, 60000);
+}
+
+function stopAutosaveTimer() {
+  if (autosaveTimer) {
+    clearInterval(autosaveTimer);
+    autosaveTimer = null;
+  }
+}
 
 async function request(path, options = {}) {
   const headers = options.headers || {};
@@ -141,6 +230,15 @@ function findFirstNoteId(nodes) {
 }
 
 async function selectNote(id, element) {
+  // 切换笔记前询问保存
+  if (id !== currentNoteId && isDirty) {
+    const ok = confirm('检测到未保存的更改，是否保存当前笔记？');
+    if (ok) {
+      await persistNote({ silent: false, reason: 'switch-note' });
+    } else {
+      resetDirtyFlag();
+    }
+  }
   if (isEditing) {
     await stopEditing();
   }
@@ -159,6 +257,8 @@ async function loadNote(id) {
   try {
     const { note } = await request(`/notes/${id}`);
     document.getElementById('note-title').value = note.title;
+    currentKeywords = Array.isArray(note.keywords) ? note.keywords : [];
+    renderKeywords();
     
     // 如果编辑器未初始化，先初始化
     if (!editorInstance) {
@@ -180,6 +280,8 @@ async function loadNote(id) {
     }
     
     editorInstance.render(data);
+    resetDirtyFlag();
+    if (!lastSaveHadError) setSaveIndicator('status-ok', '已就绪');
     const deleteBtn = document.getElementById('delete-btn');
     deleteBtn.disabled = false;
     
@@ -289,6 +391,7 @@ async function startEditing() {
     setReadOnly(false);
     document.getElementById('save-btn').disabled = false;
     hideLockInfo();
+    startAutosaveTimer();
     
     console.log('编辑模式已启动');
   } catch (err) {
@@ -315,6 +418,7 @@ async function stopEditing() {
     console.warn('停止编辑失败', err);
   }
   resetEditorState();
+  stopAutosaveTimer();
 }
 
 async function saveNote() {
@@ -329,15 +433,8 @@ async function saveNote() {
   }
   
   try {
-    const data = await editorInstance.save();
-    const title = document.getElementById('note-title').value || '无标题笔记';
-    
     console.log('保存笔记:', currentNoteId);
-    await request(`/notes/${currentNoteId}`, {
-      method: 'PUT',
-      body: { title, content: data }
-    });
-    
+    await persistNote({ silent: false, reason: 'manual' });
     await stopEditing();
     await loadTree();
     await selectNote(currentNoteId);
@@ -590,7 +687,7 @@ function setupEditor() {
         ]
       },
       onChange: (api, event) => {
-        console.log('编辑器内容发生变化:', event);
+        markDirty();
       }
     });
     
@@ -621,6 +718,15 @@ async function tryAutoLogin() {
 
 function setupEventListeners() {
   document.getElementById('logout-btn').addEventListener('click', async () => {
+    // 登出前，如有未保存更改，询问是否保存
+    if (isDirty) {
+      const ok = confirm('检测到未保存的更改，是否在登出前保存？');
+      if (ok) {
+        await persistNote({ silent: false, reason: 'logout' });
+      } else {
+        resetDirtyFlag();
+      }
+    }
     if (isEditing) {
       await stopEditing();
     }
@@ -635,12 +741,109 @@ function setupEventListeners() {
   document.getElementById('clear-btn').addEventListener('click', clearEditor);
   document.getElementById('delete-btn').addEventListener('click', deleteNote);
 
-  window.addEventListener('beforeunload', () => {
+  const titleInput = document.getElementById('note-title');
+  titleInput.addEventListener('input', () => {
+    if (isEditing) markDirty();
+  });
+
+  // 关键词输入事件
+  const kwInput = document.getElementById('keywords-input');
+  if (kwInput) {
+    kwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const value = kwInput.value.trim();
+        if (value) {
+          addKeyword(value);
+          kwInput.value = '';
+        }
+      } else if (e.key === 'Backspace' && !kwInput.value) {
+        // 空时退格删除最后一个关键词
+        if (currentKeywords.length > 0) {
+          currentKeywords.pop();
+          renderKeywords();
+          markDirty();
+        }
+      }
+    });
+  }
+
+  // 自动保存开关初始化
+  const autosaveToggle = document.getElementById('autosave-toggle');
+  const stored = localStorage.getItem('qnotes_autosave');
+  if (stored !== null) {
+    autosaveEnabled = stored === 'true';
+  }
+  if (autosaveToggle) {
+    autosaveToggle.checked = autosaveEnabled;
+    autosaveToggle.addEventListener('change', () => {
+      autosaveEnabled = autosaveToggle.checked;
+      localStorage.setItem('qnotes_autosave', String(autosaveEnabled));
+      if (autosaveEnabled) startAutosaveTimer(); else stopAutosaveTimer();
+    });
+  }
+
+  window.addEventListener('beforeunload', (e) => {
     if (isEditing && currentNoteId) {
       const payload = new Blob([JSON.stringify({})], { type: 'application/json' });
       navigator.sendBeacon(`${API_BASE}/notes/${currentNoteId}/unlock`, payload);
     }
+    if (isDirty) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
   });
+
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'hidden') {
+      if (autosaveEnabled && isDirty && currentNoteId && isEditing) {
+        await persistNote({ silent: true, reason: 'visibilitychange' });
+      }
+    }
+  });
+}
+
+function renderKeywords() {
+  const list = document.getElementById('keywords-list');
+  if (!list) return;
+  list.innerHTML = '';
+  currentKeywords.forEach((kw, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'keyword-chip';
+    chip.textContent = kw;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = '×';
+    btn.title = '删除';
+    btn.addEventListener('click', () => {
+      removeKeyword(index);
+    });
+    chip.appendChild(btn);
+    list.appendChild(chip);
+  });
+}
+
+function addKeyword(value) {
+  const parts = value.split(',').map(s => s.trim()).filter(Boolean);
+  let changed = false;
+  parts.forEach(p => {
+    if (p && !currentKeywords.includes(p)) {
+      currentKeywords.push(p);
+      changed = true;
+    }
+  });
+  if (changed) {
+    renderKeywords();
+    markDirty();
+  }
+}
+
+function removeKeyword(index) {
+  if (index >= 0 && index < currentKeywords.length) {
+    currentKeywords.splice(index, 1);
+    renderKeywords();
+    markDirty();
+  }
 }
 
 function setupResizer() {

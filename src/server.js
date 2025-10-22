@@ -130,10 +130,17 @@ app.get('/api/notes/:id', authenticate, (req, res) => {
     return res.status(404).json({ error: 'Note not found' });
   }
   let content;
+  let keywords = [];
   try {
     content = JSON.parse(note.content);
   } catch (err) {
     content = {};
+  }
+  try {
+    keywords = note.keywords ? JSON.parse(note.keywords) : [];
+    if (!Array.isArray(keywords)) keywords = [];
+  } catch (err) {
+    keywords = [];
   }
   res.json({
     note: {
@@ -143,6 +150,7 @@ app.get('/api/notes/:id', authenticate, (req, res) => {
       owner_id: note.owner_id,
       owner_username: note.owner_username,
       content,
+      keywords,
       updated_at: note.updated_at,
       lock_user_id: note.lock_user_id,
       lock_username: note.lock_username,
@@ -157,14 +165,14 @@ app.post('/api/notes', authenticate, (req, res) => {
     return res.status(400).json({ error: 'Title is required' });
   }
   const info = db
-    .prepare('INSERT INTO notes (title, parent_id, owner_id) VALUES (?, ?, ?)')
-    .run(title.trim(), parent_id || null, req.user.id);
+    .prepare('INSERT INTO notes (title, parent_id, owner_id, keywords) VALUES (?, ?, ?, ?)')
+    .run(title.trim(), parent_id || null, req.user.id, '[]');
   const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(info.lastInsertRowid);
   res.status(201).json({ note });
 });
 
 app.put('/api/notes/:id', authenticate, (req, res) => {
-  const { title, content } = req.body;
+  const { title, content, keywords } = req.body;
   const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
   if (!note) {
     return res.status(404).json({ error: 'Note not found' });
@@ -172,9 +180,19 @@ app.put('/api/notes/:id', authenticate, (req, res) => {
   
   // 暂时绕过锁定检查，直接保存
   console.log('保存笔记（绕过锁定检查）:', req.params.id);
+  let safeKeywords = [];
+  try {
+    if (Array.isArray(keywords)) {
+      safeKeywords = keywords
+        .map(k => typeof k === 'string' ? k.trim() : '')
+        .filter(k => k.length > 0);
+    }
+  } catch (e) {
+    safeKeywords = [];
+  }
   db.prepare(
-    'UPDATE notes SET title = ?, content = ?, updated_at = datetime(\'now\') WHERE id = ?'
-  ).run(title || note.title, JSON.stringify(content || {}), req.params.id);
+    'UPDATE notes SET title = ?, content = ?, keywords = ?, updated_at = datetime(\'now\') WHERE id = ?'
+  ).run(title || note.title, JSON.stringify(content || {}), JSON.stringify(safeKeywords), req.params.id);
   
   console.log('笔记保存成功');
   res.json({ success: true });

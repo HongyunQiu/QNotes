@@ -66,6 +66,14 @@
         <div class="editor-header">
           <input id="note-title" placeholder="无标题笔记" />
           <div class="editor-actions">
+            <div class="save-status" title="保存状态">
+              <span id="save-indicator" class="save-indicator status-ok"></span>
+              <span id="save-status-text" class="save-status-text">已就绪</span>
+            </div>
+            <label class="autosave-toggle" title="开启/关闭每60秒自动保存">
+              <input type="checkbox" id="autosave-toggle" />
+              <span>自动保存</span>
+            </label>
             <button id="save-btn" disabled>保存</button>
             <button id="clear-btn">清空</button>
             <button id="delete-btn" class="danger" disabled>删除</button>
@@ -73,6 +81,10 @@
         </div>
         <div id="lock-info" class="lock-info hidden"></div>
         <div id="editorjs" class="editor-container"></div>
+        <div id="keywords-bar" class="keywords-bar">
+          <div id="keywords-list" class="keywords-list"></div>
+          <input id="keywords-input" class="keywords-input" placeholder="添加关键词，回车确认" />
+        </div>
       </section>
     </main>
 

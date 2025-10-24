@@ -290,7 +290,7 @@ async function loadNote(id) {
         // 只保留支持的工具类型
         return block.type === 'header' || block.type === 'paragraph' || 
                block.type === 'checklist' || block.type === 'quote' || 
-               block.type === 'delimiter';
+               block.type === 'delimiter' || block.type === 'image';
       });
     }
     
@@ -627,6 +627,9 @@ function setupEditor() {
     if (typeof window.Delimiter === 'undefined') {
       throw new Error('Delimiter 插件未加载');
     }
+    if (typeof window.ImageTool === 'undefined') {
+      throw new Error('Image 插件未加载');
+    }
     
     // 根据测试验证成功的配置
     const tools = {
@@ -662,6 +665,31 @@ function setupEditor() {
       },
       delimiter: {
         class: window.Delimiter
+      },
+      image: {
+        class: window.ImageTool,
+        config: {
+          captionPlaceholder: '添加说明',
+          features: { border: true, caption: true, stretch: true },
+          uploader: {
+            uploadByFile(file) {
+              const formData = new FormData();
+              formData.append('image', file);
+              return request('/uploadFile', { method: 'POST', body: formData })
+                .then((res) => {
+                  if (!res || !res.file || !res.file.url) throw new Error('上传失败');
+                  return { success: 1, file: { url: res.file.url } };
+                });
+            },
+            uploadByUrl(url) {
+              return request('/fetchUrl', { method: 'POST', body: { url } })
+                .then((res) => {
+                  if (!res || !res.file || !res.file.url) throw new Error('拉取失败');
+                  return { success: 1, file: { url: res.file.url } };
+                });
+            }
+          }
+        }
       }
     };
     

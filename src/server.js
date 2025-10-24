@@ -1,6 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { URL } = require('url');
+const http = require('http');
+const https = require('https');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
@@ -9,6 +14,26 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-qnotes-key';
 const LOCK_DURATION_SECONDS = Number(process.env.LOCK_DURATION_SECONDS || 300);
+
+// 文件上传目录
+const UPLOAD_DIR = path.join(__dirname, '..', 'public', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+// 配置 multer 存储
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, UPLOAD_DIR);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname) || '';
+    const safeExt = ext && ext.length <= 10 ? ext.toLowerCase() : '';
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    cb(null, `${unique}${safeExt}`);
+  }
+});
+const upload = multer({ storage });
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -297,6 +322,66 @@ app.delete('/api/notes/:id', authenticate, (req, res) => {
   }
   db.prepare('DELETE FROM notes WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+// 上传图片（表单文件）
+app.post('/api/uploadFile', authenticate, upload.single('image'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  const publicUrl = `/uploads/${req.file.filename}`;
+  res.json({ success: 1, file: { url: publicUrl, name: req.file.originalname, size: req.file.size } });
+});
+
+// 通过 URL 下载图片
+app.post('/api/fetchUrl', authenticate, async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (typeof url !== 'string' || !url.trim()) {
+      return res.status(400).json({ error: 'Invalid url' });
+    }
+    const parsed = new URL(url);
+    if (!/^https?:$/.test(parsed.protocol)) {
+      return res.status(400).json({ error: 'Only http/https is allowed' });
+    }
+
+    const client = parsed.protocol === 'https:' ? https : http;
+    const uniqueBase = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const downloadToFile = () => new Promise((resolve, reject) => {
+      const reqGet = client.get(url, (resp) => {
+        if (resp.statusCode && resp.statusCode >= 400) {
+          reject(new Error(`Download failed: ${resp.statusCode}`));
+          resp.resume();
+          return;
+        }
+        const contentType = resp.headers['content-type'] || '';
+        let ext = '';
+        if (contentType.includes('image/')) {
+          ext = `.${contentType.split('/')[1].split(';')[0]}`;
+        } else if (contentType.includes('video/')) {
+          ext = `.${contentType.split('/')[1].split(';')[0]}`;
+        } else {
+          // 尝试从 URL 推断
+          ext = path.extname(parsed.pathname) || '';
+        }
+        if (ext.length > 10) ext = '';
+        const filename = `${uniqueBase}${ext || '.bin'}`;
+        const filepath = path.join(UPLOAD_DIR, filename);
+        const fileStream = fs.createWriteStream(filepath);
+        resp.pipe(fileStream);
+        fileStream.on('finish', () => fileStream.close(() => resolve({ filename })));
+        fileStream.on('error', reject);
+      });
+      reqGet.on('error', reject);
+    });
+
+    const { filename } = await downloadToFile();
+    const publicUrl = `/uploads/${filename}`;
+    res.json({ success: 1, file: { url: publicUrl } });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Download failed' });
+  }
 });
 
 app.get('*', (req, res) => {

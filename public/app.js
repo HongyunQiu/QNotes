@@ -290,7 +290,8 @@ async function loadNote(id) {
         // 只保留支持的工具类型
         return block.type === 'header' || block.type === 'paragraph' || 
                block.type === 'checklist' || block.type === 'quote' || 
-               block.type === 'delimiter' || block.type === 'image';
+               block.type === 'delimiter' || block.type === 'image' ||
+               block.type === 'mermaid';
       });
     }
     
@@ -607,6 +608,7 @@ function setupEditor() {
     console.log('Checklist可用:', typeof window.Checklist);
     console.log('Quote可用:', typeof window.Quote);
     console.log('Delimiter可用:', typeof window.Delimiter);
+    console.log('MermaidTool可用:', typeof window.MermaidTool);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -629,6 +631,9 @@ function setupEditor() {
     }
     if (typeof window.ImageTool === 'undefined') {
       throw new Error('Image 插件未加载');
+    }
+    if (typeof window.MermaidTool === 'undefined') {
+      throw new Error('Mermaid 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -690,7 +695,8 @@ function setupEditor() {
             }
           }
         }
-      }
+      },
+      mermaid: window.MermaidTool
     };
     
     console.log('可用工具:', Object.keys(tools));
@@ -728,6 +734,11 @@ function setupEditor() {
             }
           }
         ]
+      },
+      onReady: () => {
+        if (window.MermaidTool && typeof window.MermaidTool.config === 'function') {
+          window.MermaidTool.config({ theme: 'neutral' });
+        }
       },
       onChange: (api, event) => {
         markDirty();

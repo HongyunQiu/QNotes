@@ -288,9 +288,10 @@ async function loadNote(id) {
     if (data.blocks) {
       data.blocks = data.blocks.filter(block => {
         // 只保留支持的工具类型
-        return block.type === 'header' || block.type === 'paragraph' || 
-               block.type === 'checklist' || block.type === 'quote' || 
+        return block.type === 'header' || block.type === 'paragraph' ||
+               block.type === 'checklist' || block.type === 'quote' ||
                block.type === 'delimiter' || block.type === 'image' ||
+               block.type === 'code' ||
                block.type === 'mermaid' || block.type === 'attaches';
       });
     }
@@ -610,6 +611,7 @@ function setupEditor() {
     console.log('Delimiter可用:', typeof window.Delimiter);
     console.log('MermaidTool可用:', typeof window.MermaidTool);
     console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
+    console.log('CodeMirror可用:', typeof window.CodeMirror);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -638,6 +640,9 @@ function setupEditor() {
     }
     if (typeof (window.AttachesTool || window.Attaches) === 'undefined') {
       throw new Error('Attaches 插件未加载');
+    }
+    if (typeof window.CodeMirror === 'undefined') {
+      throw new Error('CodeMirror 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -700,6 +705,12 @@ function setupEditor() {
           }
         }
       },
+      code: {
+        class: window.CodeMirror,
+        config: {
+          placeholder: '输入代码...'
+        }
+      },
       attaches: {
         class: (window.AttachesTool || window.Attaches),
         config: {
@@ -717,7 +728,7 @@ function setupEditor() {
     
     editorInstance = new window.EditorJS({
       holder: 'editorjs',
-      readOnly: true,
+      readOnly: false,
       placeholder: '开始记录你的想法……',
       tools: tools,
       data: {

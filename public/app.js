@@ -291,7 +291,7 @@ async function loadNote(id) {
         return block.type === 'header' || block.type === 'paragraph' || 
                block.type === 'checklist' || block.type === 'quote' || 
                block.type === 'delimiter' || block.type === 'image' ||
-               block.type === 'mermaid';
+               block.type === 'mermaid' || block.type === 'attaches';
       });
     }
     
@@ -609,6 +609,7 @@ function setupEditor() {
     console.log('Quote可用:', typeof window.Quote);
     console.log('Delimiter可用:', typeof window.Delimiter);
     console.log('MermaidTool可用:', typeof window.MermaidTool);
+    console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -634,6 +635,9 @@ function setupEditor() {
     }
     if (typeof window.MermaidTool === 'undefined') {
       throw new Error('Mermaid 插件未加载');
+    }
+    if (typeof (window.AttachesTool || window.Attaches) === 'undefined') {
+      throw new Error('Attaches 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -694,6 +698,16 @@ function setupEditor() {
                 });
             }
           }
+        }
+      },
+      attaches: {
+        class: (window.AttachesTool || window.Attaches),
+        config: {
+          endpoint: `${API_BASE}/uploadAttachment`,
+          field: 'file',
+          buttonText: '选择文件',
+          errorMessage: '文件上传失败',
+          additionalRequestHeaders: authToken ? { Authorization: `Bearer ${authToken}` } : {}
         }
       },
       mermaid: window.MermaidTool

@@ -333,6 +333,26 @@ app.post('/api/uploadFile', authenticate, upload.single('image'), (req, res) => 
   res.json({ success: 1, file: { url: publicUrl, name: req.file.originalname, size: req.file.size } });
 });
 
+// 上传通用附件（与 @editorjs/attaches 兼容，字段名为 file）
+app.post('/api/uploadAttachment', authenticate, upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+  const publicUrl = `/uploads/${req.file.filename}`;
+  const name = req.file.originalname || req.file.filename;
+  const size = req.file.size || 0;
+  const ext = path.extname(name).replace('.', '').toLowerCase();
+  res.json({
+    success: 1,
+    file: {
+      url: publicUrl,
+      name,
+      size,
+      extension: ext
+    }
+  });
+});
+
 // 通过 URL 下载图片
 app.post('/api/fetchUrl', authenticate, async (req, res) => {
   try {

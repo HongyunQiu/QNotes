@@ -611,7 +611,7 @@ function setupEditor() {
     console.log('Delimiter可用:', typeof window.Delimiter);
     console.log('MermaidTool可用:', typeof window.MermaidTool);
     console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
-    console.log('CodeMirror可用:', typeof window.CodeMirror);
+    console.log('CodeFlask可用:', typeof window.editorjsCodeflask);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -641,8 +641,8 @@ function setupEditor() {
     if (typeof (window.AttachesTool || window.Attaches) === 'undefined') {
       throw new Error('Attaches 插件未加载');
     }
-    if (typeof window.CodeMirror === 'undefined') {
-      throw new Error('CodeMirror 插件未加载');
+    if (typeof window.editorjsCodeflask === 'undefined') {
+      throw new Error('CodeFlask 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -706,7 +706,7 @@ function setupEditor() {
         }
       },
       code: {
-        class: window.CodeMirror,
+        class: window.editorjsCodeflask,
         config: {
           placeholder: '输入代码...'
         }

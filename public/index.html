@@ -15,7 +15,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/image@latest/dist/bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/editorjs-mermaid@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/attaches@latest"></script>
-    <script src="vendor/editorjs-codemirror/bundle.js"></script>
+    <script src="vendor/editorjs-codeflask/editorjs-codeflask.bundle.js"></script>
     <script>
       // 检查EditorJS是否加载成功
       window.addEventListener('load', () => {
@@ -28,10 +28,10 @@
         console.log('Delimiter:', typeof window.Delimiter);
         console.log('ImageTool:', typeof window.ImageTool);
         console.log('MermaidTool:', typeof window.MermaidTool);
-        console.log('CodeMirror:', typeof window.CodeMirror);
+        console.log('CodeFlask:', typeof window.editorjsCodeflask);
         
         // 检查所有必需的插件
-        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'ImageTool', 'MermaidTool', 'CodeMirror'];
+        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'ImageTool', 'MermaidTool', 'CodeFlask'];
         const missingPlugins = [];
         
         if (typeof window.EditorJS === 'undefined') missingPlugins.push('EditorJS');
@@ -43,7 +43,7 @@
         if (typeof window.ImageTool === 'undefined') missingPlugins.push('ImageTool');
         
         if (typeof window.MermaidTool === 'undefined') missingPlugins.push('MermaidTool');
-        if (typeof window.CodeMirror === 'undefined') missingPlugins.push('CodeMirror');
+        if (typeof window.editorjsCodeflask === 'undefined') missingPlugins.push('CodeFlask');
         
         if (missingPlugins.length > 0) {
           console.error('以下插件加载失败:', missingPlugins);

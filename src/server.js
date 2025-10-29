@@ -62,6 +62,121 @@ function authenticate(req, res, next) {
   }
 }
 
+function stripHtml(html) {
+  if (typeof html !== 'string') return '';
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function textFromUrl(url) {
+  if (typeof url !== 'string' || !url) return '';
+  try {
+    const base = url.split('?')[0].split('#')[0];
+    const segs = base.split('/');
+    return segs[segs.length - 1] || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function flattenEditorJsToText(data) {
+  try {
+    if (!data || typeof data !== 'object') return '';
+    const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const parts = [];
+    for (const block of blocks) {
+      if (!block || typeof block !== 'object') continue;
+      const type = block.type;
+      const d = block.data || {};
+      if (type === 'header') {
+        parts.push(stripHtml(d.text));
+      } else if (type === 'paragraph') {
+        parts.push(stripHtml(d.text));
+      } else if (type === 'quote') {
+        parts.push(stripHtml(d.text));
+        parts.push(stripHtml(d.caption));
+      } else if (type === 'checklist') {
+        const items = Array.isArray(d.items) ? d.items : [];
+        items.forEach(it => parts.push(stripHtml(it && it.text)));
+      } else if (type === 'image') {
+        parts.push(stripHtml(d.caption));
+        const file = d.file || {};
+        parts.push(textFromUrl(file.url));
+      } else if (type === 'code') {
+        parts.push(typeof d.code === 'string' ? d.code : '');
+      } else if (type === 'mermaid') {
+        parts.push(typeof d.code === 'string' ? d.code : '');
+      } else if (type === 'attaches') {
+        const f = d.file || {};
+        parts.push(f.name || '');
+        parts.push(textFromUrl(f.url));
+      } else if (type === 'warehouse') {
+        // 尝试提取可能的标题/描述字段
+        if (typeof d.title === 'string') parts.push(stripHtml(d.title));
+        if (typeof d.description === 'string') parts.push(stripHtml(d.description));
+      }
+    }
+    return parts
+      .filter(Boolean)
+      .map(s => (typeof s === 'string' ? s : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch (e) {
+    return '';
+  }
+}
+
+function buildSnippet(haystack, needle, maxLen = 120) {
+  if (typeof haystack !== 'string' || typeof needle !== 'string') return '';
+  const lowerHay = haystack.toLowerCase();
+  const lowerNeedle = needle.toLowerCase().trim();
+  if (!lowerNeedle) return '';
+  const idx = lowerHay.indexOf(lowerNeedle);
+  if (idx === -1) {
+    return haystack.slice(0, maxLen) + (haystack.length > maxLen ? '…' : '');
+  }
+  const start = Math.max(0, idx - Math.floor((maxLen - lowerNeedle.length) / 2));
+  const end = Math.min(haystack.length, start + maxLen);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < haystack.length ? '…' : '';
+  const raw = prefix + haystack.slice(start, end) + suffix;
+  // 简单高亮（不转义，由前端负责安全渲染或转义）
+  const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+  return raw.replace(re, (m) => `<<${m}>>`); // 用占位符，前端再替换为 <mark>
+}
+
+function backfillContentText() {
+  try {
+    const rows = db.prepare("SELECT id, content, keywords, content_text FROM notes WHERE content_text IS NULL OR content_text = ''").all();
+    if (!rows || rows.length === 0) return;
+    const update = db.prepare("UPDATE notes SET content_text = ? WHERE id = ?");
+    for (const row of rows) {
+      let contentObj = {};
+      try { contentObj = JSON.parse(row.content || '{}'); } catch (e) {}
+      let flat = flattenEditorJsToText(contentObj);
+      try {
+        const kws = JSON.parse(row.keywords || '[]');
+        if (Array.isArray(kws) && kws.length) {
+          flat = `${flat} ${kws.join(' ')}`.trim();
+        }
+      } catch (e) {}
+      update.run(flat, row.id);
+    }
+    console.log(`Backfilled content_text for ${rows.length} notes`);
+  } catch (e) {
+    console.warn('Backfill content_text failed:', e.message);
+  }
+}
+
+backfillContentText();
+
 app.post('/api/register', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -244,9 +359,19 @@ app.put('/api/notes/:id', authenticate, (req, res) => {
   } catch (e) {
     safeKeywords = [];
   }
+  // 生成纯文本内容（含附件名）并附加关键词文本，便于搜索
+  let contentText = '';
+  try {
+    contentText = flattenEditorJsToText(content || {});
+  } catch (e) {
+    contentText = '';
+  }
+  if (safeKeywords.length) {
+    contentText = `${contentText} ${safeKeywords.join(' ')}`.trim();
+  }
   db.prepare(
-    'UPDATE notes SET title = ?, content = ?, keywords = ?, updated_at = datetime(\'now\') WHERE id = ?'
-  ).run(title || note.title, JSON.stringify(content || {}), JSON.stringify(safeKeywords), req.params.id);
+    'UPDATE notes SET title = ?, content = ?, content_text = ?, keywords = ?, updated_at = datetime(\'now\') WHERE id = ?'
+  ).run(title || note.title, JSON.stringify(content || {}), contentText, JSON.stringify(safeKeywords), req.params.id);
   
   console.log('笔记保存成功');
   res.json({ success: true });
@@ -313,6 +438,43 @@ app.post('/api/notes/:id/unlock', authenticate, (req, res) => {
   }
   db.prepare('UPDATE notes SET lock_user_id = NULL, lock_expires_at = NULL WHERE id = ?').run(req.params.id);
   res.json({ success: true });
+});
+
+app.get('/api/search', authenticate, (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  if (!q) {
+    return res.json({ total: 0, items: [] });
+  }
+  const like = `%${q}%`;
+  const where = 'title LIKE ? OR content_text LIKE ? OR keywords LIKE ?';
+  const countStmt = db.prepare(`SELECT COUNT(*) AS c FROM notes WHERE ${where}`);
+  const total = countStmt.get(like, like, like).c || 0;
+  const listStmt = db.prepare(`
+    SELECT id, title, updated_at, keywords, content_text
+    FROM notes
+    WHERE ${where}
+    ORDER BY updated_at DESC
+    LIMIT ? OFFSET ?
+  `);
+  const rows = listStmt.all(like, like, like, limit, offset);
+  const items = rows.map(r => {
+    let fields = [];
+    const lowerQ = q.toLowerCase();
+    if ((r.title || '').toLowerCase().includes(lowerQ)) fields.push('title');
+    if ((r.keywords || '').toLowerCase().includes(lowerQ)) fields.push('keywords');
+    if ((r.content_text || '').toLowerCase().includes(lowerQ)) fields.push('content');
+    const snippet = buildSnippet(r.content_text || r.title || '', q);
+    return {
+      id: r.id,
+      title: r.title,
+      updated_at: r.updated_at,
+      matchFields: fields,
+      snippet
+    };
+  });
+  res.json({ total, items });
 });
 
 app.delete('/api/notes/:id', authenticate, (req, res) => {

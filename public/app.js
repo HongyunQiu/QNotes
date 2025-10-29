@@ -12,6 +12,8 @@ let isSaving = false; // 是否正在保存（用于指示灯）
 let lastSaveHadError = false; // 上次保存是否报错
 let currentKeywords = []; // 当前笔记关键词
 let activeSidebarTab = 'notes'; // 'notes' | 'keywords'
+let searchDebounceTimer = null;
+let isSearchOpen = false;
 
 function getEl(id) {
   return document.getElementById(id);
@@ -905,6 +907,118 @@ function setupEventListeners() {
       if (autosaveEnabled && isDirty && currentNoteId && isEditing) {
         await persistNote({ silent: true, reason: 'visibilitychange' });
       }
+    }
+  });
+
+  // 搜索入口
+  const openSearchBtn = document.getElementById('open-search-btn');
+  const closeSearchBtn = document.getElementById('close-search-btn');
+  const searchOverlay = document.getElementById('search-overlay');
+  const searchInput = document.getElementById('global-search-input');
+  const searchResults = document.getElementById('search-results');
+
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function openSearch() {
+    if (!searchOverlay) return;
+    searchOverlay.classList.remove('hidden');
+    isSearchOpen = true;
+    setTimeout(() => searchInput && searchInput.focus(), 0);
+  }
+  function closeSearch() {
+    if (!searchOverlay) return;
+    searchOverlay.classList.add('hidden');
+    isSearchOpen = false;
+    if (searchInput) searchInput.value = '';
+    if (searchResults) searchResults.innerHTML = '';
+  }
+
+  async function performSearch(q) {
+    try {
+      if (!q || !q.trim()) {
+        searchResults.innerHTML = '<div class="search-empty">请输入关键词开始搜索</div>';
+        return;
+      }
+      searchResults.innerHTML = '<div class="search-loading">搜索中…</div>';
+      const data = await request(`/search?q=${encodeURIComponent(q)}&limit=20&offset=0`);
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (items.length === 0) {
+        searchResults.innerHTML = '<div class="search-empty">未找到匹配内容</div>';
+        return;
+      }
+      const html = items.map(item => {
+        const safeTitle = escapeHtml(item.title || '（无标题）');
+        const safeSnippet = escapeHtml(item.snippet || '')
+          .replace(/&lt;&lt;/g, '<mark>')
+          .replace(/&gt;&gt;/g, '</mark>');
+        const fields = (item.matchFields || []).join(', ');
+        const meta = fields ? `匹配字段：${fields}` : '';
+        return `
+          <div class="search-item" data-id="${item.id}">
+            <div class="search-item-title">${safeTitle}</div>
+            <div class="search-item-snippet">${safeSnippet}</div>
+            <div class="search-item-meta">${meta}</div>
+          </div>
+        `;
+      }).join('');
+      searchResults.innerHTML = html;
+      // 绑定点击
+      searchResults.querySelectorAll('.search-item').forEach(el => {
+        el.addEventListener('click', async () => {
+          const id = parseInt(el.getAttribute('data-id'), 10);
+          if (id) {
+            closeSearch();
+            await selectNote(id);
+          }
+        });
+      });
+    } catch (err) {
+      console.error(err);
+      searchResults.innerHTML = `<div class="search-error">搜索失败：${escapeHtml(err.message || '未知错误')}</div>`;
+    }
+  }
+
+  if (openSearchBtn) openSearchBtn.addEventListener('click', openSearch);
+  if (closeSearchBtn) closeSearchBtn.addEventListener('click', closeSearch);
+  if (searchOverlay) {
+    searchOverlay.addEventListener('click', (e) => {
+      if (e.target === searchOverlay) closeSearch();
+    });
+  }
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value;
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => performSearch(q), 300);
+    });
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeSearch();
+      }
+    });
+  }
+  // 快捷键 Ctrl/⌘+K 打开
+  document.addEventListener('keydown', (e) => {
+    const isCtrlK = (e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K');
+    if (isCtrlK) {
+      e.preventDefault();
+      if (isSearchOpen) {
+        closeSearch();
+      } else {
+        openSearch();
+      }
+    } else if (e.key === 'Escape' && isSearchOpen) {
+      e.preventDefault();
+      closeSearch();
     }
   });
 }

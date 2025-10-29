@@ -61,6 +61,7 @@
     <header class="topbar">
       <div class="brand">QNotes</div>
       <div class="spacer"></div>
+      <button id="open-search-btn" class="tab" title="Ctrl/⌘+K 搜索">搜索</button>
       <div class="user-info">
         <span id="current-user"></span>
         <button id="logout-btn">退出</button>
@@ -101,6 +102,16 @@
         </div>
       </section>
     </main>
+
+    <div id="search-overlay" class="search-overlay hidden">
+      <div class="search-panel" role="dialog" aria-modal="true" aria-labelledby="search-title">
+        <div class="search-header">
+          <input id="global-search-input" class="search-input" placeholder="搜索标题、正文、关键词、附件（Ctrl/⌘+K）" />
+          <button id="close-search-btn" class="search-close" title="关闭（Esc）">×</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS notes (
   parent_id INTEGER REFERENCES notes(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '{}',
+  content_text TEXT NOT NULL DEFAULT '',
   keywords TEXT NOT NULL DEFAULT '[]',
   owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -38,8 +39,12 @@ CREATE TABLE IF NOT EXISTS notes (
 try {
   const columns = db.prepare("PRAGMA table_info(notes)").all();
   const hasKeywords = columns.some((c) => c.name === 'keywords');
+  const hasContentText = columns.some((c) => c.name === 'content_text');
   if (!hasKeywords) {
     db.prepare("ALTER TABLE notes ADD COLUMN keywords TEXT NOT NULL DEFAULT '[]'").run();
+  }
+  if (!hasContentText) {
+    db.prepare("ALTER TABLE notes ADD COLUMN content_text TEXT NOT NULL DEFAULT ''").run();
   }
 } catch (err) {
   // Swallow error to avoid crashing if PRAGMA fails unexpectedly

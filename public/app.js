@@ -292,7 +292,8 @@ async function loadNote(id) {
                block.type === 'checklist' || block.type === 'quote' ||
                block.type === 'delimiter' || block.type === 'image' ||
                block.type === 'code' ||
-               block.type === 'mermaid' || block.type === 'attaches';
+               block.type === 'mermaid' || block.type === 'attaches'||
+               block.type === 'warehouse';
       });
     }
     
@@ -612,6 +613,7 @@ function setupEditor() {
     console.log('MermaidTool可用:', typeof window.MermaidTool);
     console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
     console.log('CodeFlask可用:', typeof window.editorjsCodeflask);
+    console.log('Warehouse可用:', typeof window.Warehouse);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -643,6 +645,9 @@ function setupEditor() {
     }
     if (typeof window.editorjsCodeflask === 'undefined') {
       throw new Error('CodeFlask 插件未加载');
+    }
+    if (typeof window.Warehouse === 'undefined') {
+      throw new Error('Warehouse 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -710,6 +715,9 @@ function setupEditor() {
         config: {
           placeholder: '输入代码...'
         }
+      },
+      warehouse: {
+        class: window.Warehouse,
       },
       attaches: {
         class: (window.AttachesTool || window.Attaches),

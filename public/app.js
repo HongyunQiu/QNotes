@@ -123,6 +123,25 @@ async function request(path, options = {}) {
   }
 }
 
+// 移动笔记到新父节点（null 表示移动到根）
+async function moveNote(sourceId, newParentId) {
+  try {
+    await request(`/notes/${sourceId}/move`, {
+      method: 'POST',
+      body: { parent_id: newParentId == null ? null : newParentId }
+    });
+    await loadTree();
+    if (currentNoteId) {
+      // 重新高亮当前选中项
+      const el = document.querySelector(`#note-tree li[data-id="${currentNoteId}"]`);
+      if (el) el.classList.add('active');
+    }
+    showMessage('移动成功', 'success');
+  } catch (err) {
+    showMessage('移动失败: ' + (err && err.message ? err.message : '未知错误'), 'error');
+  }
+}
+
 function setUserInfo(user) {
   currentUser = user;
   document.getElementById('current-user').textContent = user ? `欢迎，${user.username}` : '';
@@ -133,6 +152,7 @@ function buildTreeList(nodes, parentEl, depth = 0) {
     const li = document.createElement('li');
     li.dataset.id = node.id;
     li.className = 'tree-item';
+    li.setAttribute('draggable', 'true');
     
     // 创建树形结构的HTML
     const hasChildren = node.children && node.children.length > 0;
@@ -145,6 +165,36 @@ function buildTreeList(nodes, parentEl, depth = 0) {
         <span class="title">${node.title}</span>
       </div>
     `;
+
+    // 拖拽事件
+    li.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      try { e.dataTransfer.setData('text/plain', String(node.id)); } catch (_) {}
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+      li.classList.add('dragging');
+    });
+    li.addEventListener('dragend', () => {
+      li.classList.remove('dragging');
+      li.classList.remove('drag-over');
+    });
+    li.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
+      li.classList.add('drag-over');
+    });
+    li.addEventListener('dragleave', () => {
+      li.classList.remove('drag-over');
+    });
+    li.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      li.classList.remove('drag-over');
+      const data = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+      const sourceId = parseInt(data, 10);
+      const targetId = node.id;
+      if (!sourceId || sourceId === targetId) return;
+      await moveNote(sourceId, targetId);
+    });
     
     // 点击事件处理
     li.addEventListener('click', (e) => {
@@ -844,6 +894,36 @@ function setupEventListeners() {
     // 初始状态
     toggleBtn.textContent = '我的笔记';
     toggleBtn.classList.add('toggle-notes');
+  }
+
+  // 允许将条目拖拽到根（无父级）
+  const treeEl = document.getElementById('note-tree');
+  if (treeEl && !treeEl.__dndRootBound) {
+    treeEl.addEventListener('dragover', (e) => {
+      // 若悬停位置不在某个 li 上，则视为根区域
+      const li = e.target && e.target.closest ? e.target.closest('li.tree-item') : null;
+      if (!li) {
+        e.preventDefault();
+        treeEl.classList.add('drop-root');
+      }
+    });
+    treeEl.addEventListener('dragleave', (e) => {
+      const related = e.relatedTarget;
+      const stillInside = related && treeEl.contains(related);
+      if (!stillInside) treeEl.classList.remove('drop-root');
+    });
+    treeEl.addEventListener('drop', async (e) => {
+      const li = e.target && e.target.closest ? e.target.closest('li.tree-item') : null;
+      if (li) return; // 有具体条目接管
+      e.preventDefault();
+      treeEl.classList.remove('drop-root');
+      const data = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+      const sourceId = parseInt(data, 10);
+      if (!sourceId) return;
+      await moveNote(sourceId, null);
+    });
+    // 标记避免重复绑定
+    Object.defineProperty(treeEl, '__dndRootBound', { value: true, enumerable: false });
   }
   document.getElementById('save-btn').addEventListener('click', saveNote);
   document.getElementById('clear-btn').addEventListener('click', clearEditor);

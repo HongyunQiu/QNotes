@@ -486,6 +486,54 @@ app.delete('/api/notes/:id', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
+// 移动笔记：更新父节点，带循环校验
+app.post('/api/notes/:id/move', authenticate, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const rawParentId = req.body && typeof req.body.parent_id !== 'undefined' ? req.body.parent_id : null;
+  const parentId = rawParentId === null || rawParentId === undefined || rawParentId === '' ? null : parseInt(rawParentId, 10);
+
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid note id' });
+  }
+  if (parentId !== null && !Number.isInteger(parentId)) {
+    return res.status(400).json({ error: 'Invalid parent_id' });
+  }
+  if (parentId !== null && id === parentId) {
+    return res.status(400).json({ error: 'Cannot move a note under itself' });
+  }
+
+  const note = db.prepare('SELECT id FROM notes WHERE id = ?').get(id);
+  if (!note) {
+    return res.status(404).json({ error: 'Note not found' });
+  }
+
+  if (parentId !== null) {
+    const parent = db.prepare('SELECT id, parent_id FROM notes WHERE id = ?').get(parentId);
+    if (!parent) {
+      return res.status(400).json({ error: 'Parent note not found' });
+    }
+    // 循环校验：从目标父节点向上回溯，不能遇到自己
+    const rows = db.prepare('SELECT id, parent_id FROM notes').all();
+    const map = new Map(rows.map(r => [r.id, r.parent_id]));
+    let p = parentId;
+    const guard = 100000; // 简单保护以避免异常环导致死循环
+    let steps = 0;
+    while (p !== null && typeof p !== 'undefined') {
+      if (p === id) {
+        return res.status(400).json({ error: 'Cannot move a note under its descendant' });
+      }
+      p = map.get(p) ?? null;
+      steps++;
+      if (steps > guard) {
+        return res.status(400).json({ error: 'Invalid hierarchy detected' });
+      }
+    }
+  }
+
+  db.prepare('UPDATE notes SET parent_id = ? WHERE id = ?').run(parentId, id);
+  return res.json({ success: true });
+});
+
 // 上传图片（表单文件）
 app.post('/api/uploadFile', authenticate, upload.single('image'), (req, res) => {
   if (!req.file) {

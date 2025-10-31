@@ -152,6 +152,11 @@ main.app {
   background: rgba(59, 130, 246, 0.1);
 }
 
+/* 拖拽反馈样式 */
+.tree-item.dragging { opacity: 0.6; }
+.tree-item.drag-over { background: rgba(59, 130, 246, 0.15); }
+.note-tree.drop-root { outline: 2px dashed var(--primary); outline-offset: -4px; background: rgba(59,130,246,0.05); }
+
 .tree-item-content {
   display: flex;
   align-items: center;

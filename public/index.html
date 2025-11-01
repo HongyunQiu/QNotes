@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/checklist@latest/dist/bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/quote@latest/dist/bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/delimiter@latest/dist/bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@editorjs/table@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/image@latest/dist/bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/editorjs-mermaid@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/attaches@latest"></script>
@@ -27,13 +28,14 @@
         console.log('Checklist:', typeof window.Checklist);
         console.log('Quote:', typeof window.Quote);
         console.log('Delimiter:', typeof window.Delimiter);
+        console.log('Table:', typeof window.Table);
         console.log('ImageTool:', typeof window.ImageTool);
         console.log('MermaidTool:', typeof window.MermaidTool);
         console.log('CodeFlask:', typeof window.editorjsCodeflask);
         console.log('Warehouse:', typeof window.Warehouse);
         
         // 检查所有必需的插件
-        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'ImageTool', 'MermaidTool', 'CodeFlask', 'Warehouse'];
+        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'Table', 'ImageTool', 'MermaidTool', 'CodeFlask', 'Warehouse'];
         const missingPlugins = [];
         
         if (typeof window.EditorJS === 'undefined') missingPlugins.push('EditorJS');
@@ -42,6 +44,7 @@
         if (typeof window.Checklist === 'undefined') missingPlugins.push('Checklist');
         if (typeof window.Quote === 'undefined') missingPlugins.push('Quote');
         if (typeof window.Delimiter === 'undefined') missingPlugins.push('Delimiter');
+        if (typeof window.Table === 'undefined') missingPlugins.push('Table');
         if (typeof window.ImageTool === 'undefined') missingPlugins.push('ImageTool');
 
         if (typeof window.MermaidTool === 'undefined') missingPlugins.push('MermaidTool');

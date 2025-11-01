@@ -343,7 +343,7 @@ async function loadNote(id) {
         return block.type === 'header' || block.type === 'paragraph' ||
                block.type === 'checklist' || block.type === 'quote' ||
                block.type === 'delimiter' || block.type === 'image' ||
-               block.type === 'code' ||
+               block.type === 'table' || block.type === 'code' ||
                block.type === 'mermaid' || block.type === 'attaches'||
                block.type === 'warehouse';
       });
@@ -662,6 +662,7 @@ function setupEditor() {
     console.log('Checklist可用:', typeof window.Checklist);
     console.log('Quote可用:', typeof window.Quote);
     console.log('Delimiter可用:', typeof window.Delimiter);
+    console.log('Table可用:', typeof window.Table);
     console.log('MermaidTool可用:', typeof window.MermaidTool);
     console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
     console.log('CodeFlask可用:', typeof window.editorjsCodeflask);
@@ -685,6 +686,9 @@ function setupEditor() {
     }
     if (typeof window.Delimiter === 'undefined') {
       throw new Error('Delimiter 插件未加载');
+    }
+    if (typeof window.Table === 'undefined') {
+      throw new Error('Table 插件未加载');
     }
     if (typeof window.ImageTool === 'undefined') {
       throw new Error('Image 插件未加载');
@@ -736,6 +740,16 @@ function setupEditor() {
       },
       delimiter: {
         class: window.Delimiter
+      },
+      table: {
+        class: window.Table,
+        inlineToolbar: true,
+        config: {
+          rows: 2,
+          cols: 3,
+          maxRows: 5,
+          maxCols: 5
+        }
       },
       image: {
         class: window.ImageTool,

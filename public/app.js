@@ -667,6 +667,7 @@ function setupEditor() {
     console.log('AttachesTool可用:', typeof (window.AttachesTool || window.Attaches));
     console.log('CodeFlask可用:', typeof window.editorjsCodeflask);
     console.log('Warehouse可用:', typeof window.Warehouse);
+    console.log('ColorPicker可用:', typeof window.ColorPicker);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -704,6 +705,9 @@ function setupEditor() {
     }
     if (typeof window.Warehouse === 'undefined') {
       throw new Error('Warehouse 插件未加载');
+    }
+    if (typeof window.ColorPicker === 'undefined') {
+      throw new Error('ColorPicker 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -784,6 +788,17 @@ function setupEditor() {
       },
       warehouse: {
         class: window.Warehouse,
+      },
+      colorPicker: {
+        class: window.ColorPicker && window.ColorPicker.default ? window.ColorPicker.default : window.ColorPicker,
+        config: {
+          columns: 7,
+          colors: [
+            '#000000', '#262626', '#595959', '#8C8C8C', '#BFBFBF', '#D9D9D9', '#F0F0F0', '#FFFFFF',
+            '#F5222D', '#FA541C', '#FA8C16', '#FAAD14', '#FADB14', '#A0D911', '#52C41A', '#13C2C2',
+            '#1890FF', '#2F54EB', '#722ED1', '#EB2F96'
+          ]
+        }
       },
       attaches: {
         class: (window.AttachesTool || window.Attaches),

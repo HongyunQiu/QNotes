@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const archiver = require('archiver');
 const multer = require('multer');
+const checkDiskSpace = (require('check-disk-space') && (require('check-disk-space').default || require('check-disk-space'))) || null;
 const { URL } = require('url');
 const http = require('http');
 const https = require('https');
@@ -543,16 +544,13 @@ app.get('/api/admin/db/tables', authenticate, requireAdmin, (req, res) => {
 });
 
 // 备份：将 data、public/uploads、public/vendor 压缩为一个 zip 文件并下载
-app.get('/api/admin/backup', authenticate, requireAdmin, (req, res) => {
+app.get('/api/admin/backup', authenticate, requireAdmin, async (req, res) => {
   try {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const filename = `qnotes-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.zip`;
 
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    // 预估源文件大小，便于前端展示进度（近似值）
+    // 预估源文件大小，便于前端展示进度（近似值），并用于磁盘空间校验
     const ROOT = path.join(__dirname, '..');
     const dataDir = path.join(ROOT, 'data');
     const uploadsDir = path.join(ROOT, 'public', 'uploads');
@@ -577,6 +575,32 @@ app.get('/api/admin/backup', authenticate, requireAdmin, (req, res) => {
       return total;
     }
     const sourceBytes = sumDirSize(dataDir) + sumDirSize(uploadsDir) + sumDirSize(vendorDir);
+
+    // 校验磁盘剩余空间：若可用空间低于阈值则拒绝备份
+    // 阈值策略：max(环境变量 BACKUP_MIN_FREE_BYTES(默认 50MB), floor(sourceBytes * 0.1))
+    const MIN_FREE_BYTES = Number(process.env.BACKUP_MIN_FREE_BYTES || 50 * 1024 * 1024);
+    let freeBytes = null;
+    if (checkDiskSpace) {
+      try {
+        const disk = await checkDiskSpace(ROOT);
+        freeBytes = Number(disk && disk.free ? disk.free : 0);
+      } catch (_) {
+        freeBytes = null; // 无法检测时忽略（不中断）
+      }
+    }
+    const requiredFreeBytes = Math.max(MIN_FREE_BYTES, Math.floor(sourceBytes * 0.1));
+    if (freeBytes !== null && freeBytes < requiredFreeBytes) {
+      return res.status(507).json({
+        error: '磁盘空间不足，无法进行备份',
+        freeBytes,
+        requiredFreeBytes,
+        sourceBytes
+      });
+    }
+
+    // 设置下载响应头（在校验通过后再设置）
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('X-Source-Bytes', String(sourceBytes));
 
     const archive = archiver('zip', { zlib: { level: 9 } });

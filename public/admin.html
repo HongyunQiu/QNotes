@@ -56,6 +56,17 @@
           <h2>表结构</h2>
           <div id="tables-info" class="meta">加载中…</div>
         </section>
+        <section class="card">
+          <h2>数据备份</h2>
+          <div class="meta">内容包含：/data、/public/uploads、/public/vendor</div>
+          <div style="margin-top: 8px;">
+            <button id="backup-btn">下载备份</button>
+          </div>
+          <div id="backup-status" class="meta" style="margin-top: 8px;"></div>
+          <div id="backup-progress" style="height: 8px; background: #f5f5f5; border-radius: 4px; overflow: hidden; margin-top: 6px; display: none;">
+            <div id="backup-progress-bar" style="height: 100%; width: 0%; background: #52c41a;"></div>
+          </div>
+        </section>
       </div>
     </main>
     <script src="admin.js"></script>

@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const archiver = require('archiver');
 const multer = require('multer');
 const { URL } = require('url');
 const http = require('http');
@@ -538,6 +539,77 @@ app.get('/api/admin/db/tables', authenticate, requireAdmin, (req, res) => {
     res.json({ tables: { users: usersInfo, notes: notesInfo } });
   } catch (e) {
     res.status(500).json({ error: 'Failed to load table info' });
+  }
+});
+
+// 备份：将 data、public/uploads、public/vendor 压缩为一个 zip 文件并下载
+app.get('/api/admin/backup', authenticate, requireAdmin, (req, res) => {
+  try {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const filename = `qnotes-backup-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // 预估源文件大小，便于前端展示进度（近似值）
+    const ROOT = path.join(__dirname, '..');
+    const dataDir = path.join(ROOT, 'data');
+    const uploadsDir = path.join(ROOT, 'public', 'uploads');
+    const vendorDir = path.join(ROOT, 'public', 'vendor');
+    function safeStat(p) { try { return fs.statSync(p); } catch (_) { return null; } }
+    function sumDirSize(dir) {
+      const st = safeStat(dir);
+      if (!st) return 0;
+      if (!st.isDirectory()) return 0;
+      let total = 0;
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { entries = []; }
+      for (const ent of entries) {
+        const full = path.join(dir, ent.name);
+        if (ent.isFile()) {
+          const fst = safeStat(full);
+          total += fst && fst.size ? fst.size : 0;
+        } else if (ent.isDirectory()) {
+          total += sumDirSize(full);
+        }
+      }
+      return total;
+    }
+    const sourceBytes = sumDirSize(dataDir) + sumDirSize(uploadsDir) + sumDirSize(vendorDir);
+    res.setHeader('X-Source-Bytes', String(sourceBytes));
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => {
+      console.error('Archive error:', err && err.message ? err.message : err);
+      try { res.end(); } catch (_) {}
+    });
+    archive.on('warning', (err) => {
+      console.warn('Archive warning:', err && err.message ? err.message : err);
+    });
+
+    archive.pipe(res);
+
+    if (fs.existsSync(dataDir)) {
+      archive.directory(dataDir, 'data');
+    }
+    if (fs.existsSync(uploadsDir)) {
+      archive.directory(uploadsDir, path.join('public', 'uploads'));
+    }
+    if (fs.existsSync(vendorDir)) {
+      archive.directory(vendorDir, path.join('public', 'vendor'));
+    }
+
+    // 可选：加入一个简单的元信息文件，帮助识别备份
+    const meta = {
+      generatedAt: now.toISOString(),
+      include: ['data/**', 'public/uploads/**', 'public/vendor/**']
+    };
+    archive.append(JSON.stringify(meta, null, 2), { name: 'backup-meta.json' });
+
+    archive.finalize();
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to create backup' });
   }
 });
 

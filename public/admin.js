@@ -22,6 +22,16 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+function escapeHtml(str) {
+  if (typeof str !== 'string') return String(str ?? '');
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatBytes(bytes) {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   if (bytes === 0) return '0 B';
@@ -40,12 +50,17 @@ function renderUsers(list) {
   tbody.innerHTML = '';
   list.forEach(u => {
     const tr = document.createElement('tr');
+    const safeId = escapeHtml(String(u.id));
+    const safeUsername = escapeHtml(String(u.username || ''));
+    const roleHtml = u.is_admin ? '<span class="pill pill-admin">管理员</span>' : '普通用户';
+    const safeNoteCount = escapeHtml(String(u.note_count || 0));
+    const safeCreatedAt = escapeHtml(String(u.created_at || ''));
     tr.innerHTML = `
-      <td>${u.id}</td>
-      <td>${u.username}</td>
-      <td>${u.is_admin ? '<span class="pill pill-admin">管理员</span>' : '普通用户'}</td>
-      <td>${u.note_count || 0}</td>
-      <td>${u.created_at}</td>
+      <td>${safeId}</td>
+      <td>${safeUsername}</td>
+      <td>${roleHtml}</td>
+      <td>${safeNoteCount}</td>
+      <td>${safeCreatedAt}</td>
     `;
     tbody.appendChild(tr);
   });

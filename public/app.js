@@ -144,7 +144,24 @@ async function moveNote(sourceId, newParentId) {
 
 function setUserInfo(user) {
   currentUser = user;
-  document.getElementById('current-user').textContent = user ? `欢迎，${user.username}` : '';
+  const userSpan = document.getElementById('current-user');
+  if (userSpan) {
+    userSpan.textContent = user ? `欢迎，${user.username}` : '';
+  }
+  const userInfoWrap = document.querySelector('.user-info');
+  const existingAdminLink = document.getElementById('admin-link');
+  if (user && user.is_admin) {
+    if (!existingAdminLink && userInfoWrap) {
+      const a = document.createElement('a');
+      a.id = 'admin-link';
+      a.className = 'tab';
+      a.href = 'admin.html';
+      a.textContent = '管理';
+      userInfoWrap.insertBefore(a, userInfoWrap.firstChild);
+    }
+  } else if (existingAdminLink && existingAdminLink.parentNode) {
+    existingAdminLink.parentNode.removeChild(existingAdminLink);
+  }
 }
 
 function buildTreeList(nodes, parentEl, depth = 0) {

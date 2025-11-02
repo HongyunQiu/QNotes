@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QNotes 管理后台</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .admin-container { padding: 16px; }
+      .admin-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+      .card { background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 16px; }
+      .card h2 { margin: 0 0 12px 0; font-size: 18px; }
+      .meta { color: #666; font-size: 12px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px; border-bottom: 1px solid #f0f0f0; }
+      th { background: #fafafa; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+      .pill-admin { background: #f0f9eb; color: #52c41a; border: 1px solid #b7eb8f; }
+      .topbar .actions { display: flex; gap: 8px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">QNotes 管理</div>
+      <div class="spacer"></div>
+      <div class="actions">
+        <a id="back-to-app" class="tab" href="index.html">返回应用</a>
+        <button id="logout-btn">退出</button>
+      </div>
+    </header>
+    <main class="admin-container">
+      <div class="admin-grid">
+        <section class="card">
+          <h2>数据库概览</h2>
+          <div id="db-summary" class="meta">加载中…</div>
+        </section>
+        <section class="card">
+          <h2>用户列表</h2>
+          <div class="meta">仅超级管理员可见</div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>笔记数</th>
+                <th>创建时间</th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="5" class="meta">加载中…</td></tr>
+            </tbody>
+          </table>
+        </section>
+        <section class="card">
+          <h2>表结构</h2>
+          <div id="tables-info" class="meta">加载中…</div>
+        </section>
+      </div>
+    </main>
+    <script src="admin.js"></script>
+  </body>
+  </html>
+
+

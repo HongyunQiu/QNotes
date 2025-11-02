@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  is_admin INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -48,6 +49,30 @@ try {
   }
 } catch (err) {
   // Swallow error to avoid crashing if PRAGMA fails unexpectedly
+}
+
+// Ensure "is_admin" column exists for existing databases created before this field was added
+try {
+  const userColumns = db.prepare("PRAGMA table_info(users)").all();
+  const hasIsAdmin = userColumns.some((c) => c.name === 'is_admin');
+  if (!hasIsAdmin) {
+    db.prepare("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0").run();
+  }
+} catch (err) {
+  // ignore
+}
+
+// Guarantee there is at least one admin user: if none, promote the earliest user
+try {
+  const adminCount = db.prepare("SELECT COUNT(*) AS c FROM users WHERE is_admin = 1").get().c || 0;
+  if (adminCount === 0) {
+    const firstUser = db.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 1").get();
+    if (firstUser && firstUser.id) {
+      db.prepare("UPDATE users SET is_admin = 1 WHERE id = ?").run(firstUser.id);
+    }
+  }
+} catch (_) {
+  // ignore
 }
 
 module.exports = db;

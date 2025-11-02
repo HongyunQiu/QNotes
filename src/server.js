@@ -39,7 +39,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 function generateToken(user) {
-  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
+  return jwt.sign({ id: user.id, username: user.username, is_admin: !!user.is_admin }, JWT_SECRET, {
     expiresIn: '12h'
   });
 }
@@ -59,6 +59,18 @@ function authenticate(req, res, next) {
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  try {
+    const row = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.user && req.user.id);
+    if (!row || !row.is_admin) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    next();
+  } catch (e) {
+    res.status(500).json({ error: 'Admin check failed' });
   }
 }
 
@@ -192,9 +204,17 @@ app.post('/api/register', (req, res) => {
   }
   const passwordHash = bcrypt.hashSync(password, 10);
   const info = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run(trimmedUsername, passwordHash);
-  const user = { id: info.lastInsertRowid, username: trimmedUsername };
-  const token = generateToken(user);
-  res.json({ token, user });
+  // If this is the very first user, or no admin exists, promote this user
+  try {
+    const adminCount = db.prepare('SELECT COUNT(*) AS c FROM users WHERE is_admin = 1').get().c || 0;
+    const totalUsers = db.prepare('SELECT COUNT(*) AS c FROM users').get().c || 0;
+    if (adminCount === 0 && totalUsers >= 1) {
+      db.prepare('UPDATE users SET is_admin = 1 WHERE id = ?').run(info.lastInsertRowid);
+    }
+  } catch (_) {}
+  const fullUser = db.prepare('SELECT id, username, is_admin FROM users WHERE id = ?').get(info.lastInsertRowid);
+  const token = generateToken(fullUser);
+  res.json({ token, user: fullUser });
 });
 
 app.post('/api/login', (req, res) => {
@@ -211,11 +231,17 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
   const token = generateToken(user);
-  res.json({ token, user: { id: user.id, username: user.username } });
+  res.json({ token, user: { id: user.id, username: user.username, is_admin: !!user.is_admin } });
 });
 
 app.get('/api/profile', authenticate, (req, res) => {
-  res.json({ user: req.user });
+  try {
+    const user = db.prepare('SELECT id, username, is_admin FROM users WHERE id = ?').get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (e) {
+    res.status(500).json({ error: 'Profile fetch failed' });
+  }
 });
 
 function buildTree(notes) {
@@ -475,6 +501,44 @@ app.get('/api/search', authenticate, (req, res) => {
     };
   });
   res.json({ total, items });
+});
+
+// Admin APIs
+app.get('/api/admin/users', authenticate, requireAdmin, (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT u.id, u.username, u.is_admin, u.created_at,
+             (SELECT COUNT(1) FROM notes n WHERE n.owner_id = u.id) AS note_count
+      FROM users u
+      ORDER BY u.id ASC
+    `).all();
+    res.json({ users: rows });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load users' });
+  }
+});
+
+app.get('/api/admin/db/summary', authenticate, requireAdmin, (req, res) => {
+  try {
+    const users = db.prepare('SELECT COUNT(*) AS c FROM users').get().c || 0;
+    const notes = db.prepare('SELECT COUNT(*) AS c FROM notes').get().c || 0;
+    const pageCount = db.pragma('page_count', { simple: true });
+    const pageSize = db.pragma('page_size', { simple: true });
+    const dbSizeBytes = (Number(pageCount) || 0) * (Number(pageSize) || 0);
+    res.json({ users, notes, dbSizeBytes });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load db summary' });
+  }
+});
+
+app.get('/api/admin/db/tables', authenticate, requireAdmin, (req, res) => {
+  try {
+    const usersInfo = db.prepare('PRAGMA table_info(users)').all();
+    const notesInfo = db.prepare('PRAGMA table_info(notes)').all();
+    res.json({ tables: { users: usersInfo, notes: notesInfo } });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load table info' });
+  }
 });
 
 app.delete('/api/notes/:id', authenticate, (req, res) => {

@@ -76,6 +76,117 @@ function requireAdmin(req, res, next) {
   }
 }
 
+function isAdminUser(req) {
+  try {
+    const row = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(req.user && req.user.id);
+    return !!(row && row.is_admin);
+  } catch (_) {
+    return false;
+  }
+}
+
+function requireNoteWriteAccess(req, res, next) {
+  try {
+    if (isAdminUser(req)) return next();
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) {
+      return res.status(400).json({ error: 'Invalid note id' });
+    }
+    const note = db.prepare('SELECT id, owner_id FROM notes WHERE id = ?').get(id);
+    if (!note) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+    if (parseInt(note.owner_id) !== parseInt(req.user.id)) {
+      return res.status(403).json({ error: 'Forbidden: not the owner' });
+    }
+    next();
+  } catch (e) {
+    res.status(500).json({ error: 'Authorization check failed' });
+  }
+}
+
+// ---- Authorization mode helpers ----
+function getAuthMode() {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'auth_mode'").get();
+    const v = row && typeof row.value === 'string' ? row.value : 'team';
+    return v === 'personal' ? 'personal' : 'team';
+  } catch (_) {
+    return 'team';
+  }
+}
+
+function isAdminId(userId) {
+  try {
+    const row = db.prepare('SELECT is_admin FROM users WHERE id = ?').get(userId);
+    return !!(row && row.is_admin);
+  } catch (_) {
+    return false;
+  }
+}
+
+function getUserGroupIds(userId) {
+  try {
+    const rows = db.prepare('SELECT group_id FROM user_groups WHERE user_id = ?').all(userId);
+    return rows.map(r => r.group_id);
+  } catch (_) {
+    return [];
+  }
+}
+
+function getAllSecondLevelSectionIds() {
+  // 二级节点：其父节点为根（parent_id IS NULL）
+  const rows = db.prepare(`
+    SELECT n.id
+    FROM notes n
+    JOIN notes p ON p.id = n.parent_id
+    WHERE p.parent_id IS NULL
+  `).all();
+  return new Set(rows.map(r => r.id));
+}
+
+function getAllowedSectionIdsForUser(userId) {
+  // 公共（未授权）二级节点 + 属于用户组的已授权二级节点
+  const allSections = getAllSecondLevelSectionIds();
+  const groupRows = db.prepare('SELECT section_note_id, group_id FROM section_group').all();
+  const sectionToGroup = new Map(groupRows.map(r => [r.section_note_id, r.group_id]));
+  const userGroups = new Set(getUserGroupIds(userId));
+  const allowed = new Set();
+  for (const sectionId of allSections) {
+    const gid = sectionToGroup.get(sectionId);
+    if (!gid || userGroups.has(gid)) {
+      allowed.add(sectionId);
+    }
+  }
+  return allowed;
+}
+
+function buildIdToParentMap() {
+  const rows = db.prepare('SELECT id, parent_id FROM notes').all();
+  const map = new Map();
+  rows.forEach(r => map.set(r.id, r.parent_id));
+  return map;
+}
+
+function computeSecondLevelSectionId(noteId, idToParent) {
+  // 返回该笔记所在的二级节点ID；若自身为根则返回 null；若自身为二级则返回自己ID
+  // 通过向上回溯，定位到 parent 的 parent 为空的节点
+  let current = noteId;
+  let parent = idToParent.get(current) ?? null;
+  if (parent == null) return null; // 根节点
+  let grand = idToParent.get(parent) ?? null;
+  // 如果父节点是根，则当前是二级
+  if (grand == null) return current;
+  // 否则持续上溯直到到达二级
+  while (grand != null) {
+    current = parent;
+    parent = grand;
+    grand = idToParent.get(parent) ?? null;
+  }
+  // 循环结束时 current 为二级节点
+  return current || null;
+}
+
 function stripHtml(html) {
   if (typeof html !== 'string') return '';
   return html
@@ -276,18 +387,34 @@ function cleanupExpiredLocks() {
 
 app.get('/api/notes', authenticate, (req, res) => {
   cleanupExpiredLocks();
-  const notes = db.prepare(`
-    SELECT n.id, n.parent_id, n.title, n.updated_at, u.username AS owner_username
+  const mode = getAuthMode();
+  const rows = db.prepare(`
+    SELECT n.id, n.parent_id, n.title, n.updated_at, n.owner_id, u.username AS owner_username
     FROM notes n
     JOIN users u ON u.id = n.owner_id
     ORDER BY (n.parent_id IS NOT NULL), n.parent_id, n.title
   `).all();
-  res.json({ tree: buildTree(notes) });
+  let notes = rows;
+  if (mode === 'personal') {
+    notes = rows.filter(r => Number(r.owner_id) === Number(req.user.id));
+  } else {
+    // Team mode: visible = own notes OR notes owned by admin
+    notes = rows.filter(r => Number(r.owner_id) === Number(req.user.id) || isAdminId(r.owner_id));
+  }
+  res.json({ tree: buildTree(notes.map(({ owner_id, ...rest }) => rest)) });
 });
 
 app.get('/api/keywords', authenticate, (req, res) => {
-  // 返回按关键词分组的笔记列表
-  const rows = db.prepare('SELECT id, title, updated_at, keywords FROM notes').all();
+  // 返回按关键词分组的笔记列表（根据模式过滤可见性）
+  const mode = getAuthMode();
+  const rowsAll = db.prepare('SELECT id, parent_id, title, updated_at, keywords, owner_id FROM notes').all();
+  let rows = rowsAll;
+  if (mode === 'personal') {
+    rows = rowsAll.filter(r => Number(r.owner_id) === Number(req.user.id));
+  } else {
+    // Team mode: own notes or admin-owned notes
+    rows = rowsAll.filter(r => Number(r.owner_id) === Number(req.user.id) || isAdminId(r.owner_id));
+  }
   const map = new Map(); // keyword -> array of notes
   rows.forEach((row) => {
     let list = [];
@@ -326,6 +453,18 @@ app.get('/api/notes/:id', authenticate, (req, res) => {
   if (!note) {
     return res.status(404).json({ error: 'Note not found' });
   }
+  // 可见性校验
+  const modeView = getAuthMode();
+  if (modeView === 'personal') {
+    if (Number(note.owner_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  } else {
+    // Team mode: allow if owner is self or admin
+    if (!(Number(note.owner_id) === Number(req.user.id) || isAdminId(note.owner_id))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
   let content;
   let keywords = [];
   try {
@@ -361,6 +500,22 @@ app.post('/api/notes', authenticate, (req, res) => {
   if (!title || !title.trim()) {
     return res.status(400).json({ error: 'Title is required' });
   }
+  // 父节点可见性/权限校验
+  const mode = getAuthMode();
+  if (parent_id) {
+    const parent = db.prepare('SELECT id, owner_id, parent_id FROM notes WHERE id = ?').get(parent_id);
+    if (!parent) return res.status(400).json({ error: 'Parent note not found' });
+    if (mode === 'personal') {
+      if (Number(parent.owner_id) !== Number(req.user.id)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    } else {
+      // Team mode: parent must be visible → owner is self or admin
+      if (!(Number(parent.owner_id) === Number(req.user.id) || isAdminId(parent.owner_id))) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+  }
   const info = db
     .prepare('INSERT INTO notes (title, parent_id, owner_id, keywords) VALUES (?, ?, ?, ?)')
     .run(title.trim(), parent_id || null, req.user.id, '[]');
@@ -368,7 +523,7 @@ app.post('/api/notes', authenticate, (req, res) => {
   res.status(201).json({ note });
 });
 
-app.put('/api/notes/:id', authenticate, (req, res) => {
+app.put('/api/notes/:id', authenticate, requireNoteWriteAccess, (req, res) => {
   const { title, content, keywords } = req.body;
   const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
   if (!note) {
@@ -405,7 +560,7 @@ app.put('/api/notes/:id', authenticate, (req, res) => {
   res.json({ success: true });
 });
 
-app.post('/api/notes/:id/lock', authenticate, (req, res) => {
+app.post('/api/notes/:id/lock', authenticate, requireNoteWriteAccess, (req, res) => {
   console.log('锁定请求 - 用户ID:', req.user.id, '笔记ID:', req.params.id);
   
   cleanupExpiredLocks();
@@ -456,12 +611,12 @@ app.post('/api/notes/:id/lock', authenticate, (req, res) => {
   });
 });
 
-app.post('/api/notes/:id/unlock', authenticate, (req, res) => {
+app.post('/api/notes/:id/unlock', authenticate, requireNoteWriteAccess, (req, res) => {
   const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
   if (!note) {
     return res.status(404).json({ error: 'Note not found' });
   }
-  if (note.lock_user_id && parseInt(note.lock_user_id) !== parseInt(req.user.id)) {
+  if (note.lock_user_id && parseInt(note.lock_user_id) !== parseInt(req.user.id) && !isAdminUser(req)) {
     return res.status(403).json({ error: 'You do not hold the lock on this note' });
   }
   db.prepare('UPDATE notes SET lock_user_id = NULL, lock_expires_at = NULL WHERE id = ?').run(req.params.id);
@@ -478,7 +633,7 @@ app.get('/api/search', authenticate, (req, res) => {
   const like = `%${q}%`;
   const where = 'title LIKE ? OR content_text LIKE ? OR keywords LIKE ?';
   const countStmt = db.prepare(`SELECT COUNT(*) AS c FROM notes WHERE ${where}`);
-  const total = countStmt.get(like, like, like).c || 0;
+  let total = countStmt.get(like, like, like).c || 0;
   const listStmt = db.prepare(`
     SELECT id, title, updated_at, keywords, content_text
     FROM notes
@@ -486,7 +641,40 @@ app.get('/api/search', authenticate, (req, res) => {
     ORDER BY updated_at DESC
     LIMIT ? OFFSET ?
   `);
-  const rows = listStmt.all(like, like, like, limit, offset);
+  const rowsAll = listStmt.all(like, like, like, limit, offset);
+
+  // 过滤不可见结果
+  let rows = rowsAll;
+  const mode = getAuthMode();
+  if (mode === 'personal') {
+    // 需要基于所有匹配结果的 owner 过滤，补充 owner_id 查询
+    const ids = rowsAll.map(r => r.id);
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const owners = db.prepare(`SELECT id, owner_id, parent_id FROM notes WHERE id IN (${placeholders})`).all(...ids);
+      const idToOwner = new Map(owners.map(o => [o.id, o.owner_id]));
+      rows = rowsAll.filter(r => Number(idToOwner.get(r.id)) === Number(req.user.id));
+    } else {
+      rows = [];
+    }
+    total = rows.length;
+  } else {
+    // Team mode: filter to own or admin-owned
+    const ids = rowsAll.map(r => r.id);
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const owners = db.prepare(`SELECT id, owner_id FROM notes WHERE id IN (${placeholders})`).all(...ids);
+      const idToOwner = new Map(owners.map(o => [o.id, o.owner_id]));
+      rows = rowsAll.filter(r => {
+        const ownerId = idToOwner.get(r.id);
+        return Number(ownerId) === Number(req.user.id) || isAdminId(ownerId);
+      });
+    } else {
+      rows = [];
+    }
+    total = rows.length;
+  }
+
   const items = rows.map(r => {
     let fields = [];
     const lowerQ = q.toLowerCase();
@@ -540,6 +728,139 @@ app.get('/api/admin/db/tables', authenticate, requireAdmin, (req, res) => {
     res.json({ tables: { users: usersInfo, notes: notesInfo } });
   } catch (e) {
     res.status(500).json({ error: 'Failed to load table info' });
+  }
+});
+
+// ---- Admin: Authorization Settings & Groups ----
+app.get('/api/admin/settings', authenticate, requireAdmin, (req, res) => {
+  try {
+    res.json({ auth_mode: getAuthMode() });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load settings' });
+  }
+});
+
+app.post('/api/admin/settings', authenticate, requireAdmin, (req, res) => {
+  try {
+    const mode = (req.body && req.body.auth_mode) || '';
+    if (!['personal', 'team'].includes(mode)) {
+      return res.status(400).json({ error: 'Invalid auth_mode' });
+    }
+    db.prepare("INSERT INTO settings(key, value) VALUES('auth_mode', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(mode);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+app.get('/api/admin/groups', authenticate, requireAdmin, (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT g.id, g.name,
+             (SELECT COUNT(1) FROM user_groups ug WHERE ug.group_id = g.id) AS member_count
+      FROM groups g
+      ORDER BY g.name ASC
+    `).all();
+    res.json({ groups: rows });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load groups' });
+  }
+});
+
+app.post('/api/admin/groups', authenticate, requireAdmin, (req, res) => {
+  try {
+    const name = (req.body && req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Invalid group name' });
+    const info = db.prepare('INSERT INTO groups(name) VALUES(?)').run(name);
+    const group = db.prepare('SELECT id, name FROM groups WHERE id = ?').get(info.lastInsertRowid);
+    res.status(201).json({ group });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to create group' });
+  }
+});
+
+app.delete('/api/admin/groups/:id', authenticate, requireAdmin, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid group id' });
+    db.prepare('DELETE FROM groups WHERE id = ?').run(id);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to delete group' });
+  }
+});
+
+app.get('/api/admin/memberships', authenticate, requireAdmin, (req, res) => {
+  try {
+    const rows = db.prepare('SELECT user_id, group_id FROM user_groups').all();
+    res.json({ memberships: rows });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load memberships' });
+  }
+});
+
+app.post('/api/admin/memberships', authenticate, requireAdmin, (req, res) => {
+  try {
+    const { user_id, group_id } = req.body || {};
+    const uid = parseInt(user_id, 10);
+    const gid = parseInt(group_id, 10);
+    if (!Number.isInteger(uid) || !Number.isInteger(gid)) return res.status(400).json({ error: 'Invalid ids' });
+    db.prepare('INSERT OR IGNORE INTO user_groups(user_id, group_id) VALUES(?, ?)').run(uid, gid);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to add membership' });
+  }
+});
+
+app.post('/api/admin/memberships/delete', authenticate, requireAdmin, (req, res) => {
+  try {
+    const { user_id, group_id } = req.body || {};
+    const uid = parseInt(user_id, 10);
+    const gid = parseInt(group_id, 10);
+    if (!Number.isInteger(uid) || !Number.isInteger(gid)) return res.status(400).json({ error: 'Invalid ids' });
+    db.prepare('DELETE FROM user_groups WHERE user_id = ? AND group_id = ?').run(uid, gid);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to remove membership' });
+  }
+});
+
+app.get('/api/admin/sections', authenticate, requireAdmin, (req, res) => {
+  try {
+    const sections = db.prepare(`
+      SELECT n.id, n.title, sg.group_id
+      FROM notes n
+      JOIN notes p ON p.id = n.parent_id
+      LEFT JOIN section_group sg ON sg.section_note_id = n.id
+      WHERE p.parent_id IS NULL
+      ORDER BY n.title ASC
+    `).all();
+    res.json({ sections });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load sections' });
+  }
+});
+
+app.post('/api/admin/sections/:id/assign', authenticate, requireAdmin, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid section id' });
+    const group_id = req.body && (req.body.group_id === null || typeof req.body.group_id === 'undefined') ? null : parseInt(req.body.group_id, 10);
+    const exists = db.prepare('SELECT id FROM notes WHERE id = ?').get(id);
+    if (!exists) return res.status(404).json({ error: 'Section not found' });
+    // 确保为二级节点
+    const parent = db.prepare('SELECT p.parent_id FROM notes n JOIN notes p ON p.id = n.parent_id WHERE n.id = ?').get(id);
+    if (!parent || parent.parent_id !== null) {
+      return res.status(400).json({ error: 'Not a second-level note' });
+    }
+    if (group_id && !Number.isNaN(group_id)) {
+      db.prepare('INSERT INTO section_group(section_note_id, group_id) VALUES(?, ?) ON CONFLICT(section_note_id) DO UPDATE SET group_id=excluded.group_id').run(id, group_id);
+    } else {
+      db.prepare('DELETE FROM section_group WHERE section_note_id = ?').run(id);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to assign section group' });
   }
 });
 
@@ -637,7 +958,7 @@ app.get('/api/admin/backup', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-app.delete('/api/notes/:id', authenticate, (req, res) => {
+app.delete('/api/notes/:id', authenticate, requireNoteWriteAccess, (req, res) => {
   const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(req.params.id);
   if (!note) {
     return res.status(404).json({ error: 'Note not found' });
@@ -647,7 +968,7 @@ app.delete('/api/notes/:id', authenticate, (req, res) => {
 });
 
 // 移动笔记：更新父节点，带循环校验
-app.post('/api/notes/:id/move', authenticate, (req, res) => {
+app.post('/api/notes/:id/move', authenticate, requireNoteWriteAccess, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const rawParentId = req.body && typeof req.body.parent_id !== 'undefined' ? req.body.parent_id : null;
   const parentId = rawParentId === null || rawParentId === undefined || rawParentId === '' ? null : parseInt(rawParentId, 10);
@@ -671,6 +992,16 @@ app.post('/api/notes/:id/move', authenticate, (req, res) => {
     const parent = db.prepare('SELECT id, parent_id FROM notes WHERE id = ?').get(parentId);
     if (!parent) {
       return res.status(400).json({ error: 'Parent note not found' });
+    }
+    // 新父节点可见性（团队模式：父节点必须属于当前用户或管理员）
+    if (getAuthMode() === 'team') {
+      const ownerRow = db.prepare('SELECT owner_id FROM notes WHERE id = ?').get(parentId);
+      if (ownerRow) {
+        const oid = ownerRow.owner_id;
+        if (!(Number(oid) === Number(req.user.id) || isAdminId(oid))) {
+          return res.status(403).json({ error: 'Forbidden to move under target' });
+        }
+      }
     }
     // 循环校验：从目标父节点向上回溯，不能遇到自己
     const rows = db.prepare('SELECT id, parent_id FROM notes').all();

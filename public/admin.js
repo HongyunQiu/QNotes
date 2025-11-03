@@ -116,14 +116,22 @@ async function init() {
     return;
   }
   try {
-    const [summary, usersRes, tablesRes] = await Promise.all([
+    const [summary, usersRes, tablesRes, settingsRes, groupsRes, membershipsRes, sectionsRes] = await Promise.all([
       request('/admin/db/summary'),
       request('/admin/users'),
-      request('/admin/db/tables')
+      request('/admin/db/tables'),
+      request('/admin/settings'),
+      request('/admin/groups'),
+      request('/admin/memberships'),
+      request('/admin/sections')
     ]);
     renderDbSummary(summary);
     renderUsers(usersRes.users || []);
     renderTablesInfo((tablesRes && tablesRes.tables) || {});
+    setupAuthMode(settingsRes && settingsRes.auth_mode);
+    renderGroups(groupsRes && groupsRes.groups || []);
+    renderMemberships(usersRes.users || [], groupsRes && groupsRes.groups || [], membershipsRes && membershipsRes.memberships || []);
+    renderSections(groupsRes && groupsRes.groups || [], sectionsRes && sectionsRes.sections || []);
   } catch (e) {
     console.error(e);
     alert('加载管理数据失败');
@@ -211,6 +219,159 @@ function triggerDownload(blob, filename) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function setupAuthMode(mode) {
+  const select = document.getElementById('auth-mode-select');
+  const btn = document.getElementById('save-auth-mode-btn');
+  const status = document.getElementById('auth-mode-status');
+  if (select) select.value = mode === 'personal' ? 'personal' : 'team';
+  if (btn) {
+    btn.addEventListener('click', async () => {
+      try {
+        await request('/admin/settings', { method: 'POST', body: { auth_mode: select.value } });
+        if (status) status.textContent = '已保存';
+        setTimeout(() => { if (status) status.textContent = ''; }, 1500);
+      } catch (e) {
+        alert('保存失败');
+      }
+    });
+  }
+}
+
+function renderGroups(groups) {
+  const listEl = document.getElementById('groups-list');
+  const input = document.getElementById('new-group-name');
+  const createBtn = document.getElementById('create-group-btn');
+  const render = () => {
+    if (!listEl) return;
+    if (!groups || groups.length === 0) {
+      listEl.textContent = '暂无用户组';
+      return;
+    }
+    listEl.innerHTML = '';
+    const ul = document.createElement('ul');
+    groups.forEach(g => {
+      const li = document.createElement('li');
+      li.innerHTML = `${escapeHtml(g.name)} <span class="meta">(成员 ${g.member_count || 0})</span> <button data-del="${g.id}">删除</button>`;
+      ul.appendChild(li);
+    });
+    listEl.appendChild(ul);
+    listEl.querySelectorAll('button[data-del]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.getAttribute('data-del'), 10);
+        if (!confirm('确定删除此组？')) return;
+        await request(`/admin/groups/${id}`, { method: 'DELETE' });
+        const refreshed = await request('/admin/groups');
+        groups.splice(0, groups.length, ...((refreshed && refreshed.groups) || []));
+        render();
+        // 也应刷新成员关系和二级授权
+        const memberships = await request('/admin/memberships');
+        const sections = await request('/admin/sections');
+        renderMemberships(window.__usersCache || [], groups, memberships && memberships.memberships || []);
+        renderSections(groups, sections && sections.sections || []);
+      });
+    });
+  };
+  render();
+  if (createBtn) {
+    createBtn.addEventListener('click', async () => {
+      const name = (input && input.value || '').trim();
+      if (!name) return;
+      await request('/admin/groups', { method: 'POST', body: { name } });
+      input.value = '';
+      const refreshed = await request('/admin/groups');
+      groups.splice(0, groups.length, ...((refreshed && refreshed.groups) || []));
+      render();
+      const memberships = await request('/admin/memberships');
+      const sections = await request('/admin/sections');
+      renderMemberships(window.__usersCache || [], groups, memberships && memberships.memberships || []);
+      renderSections(groups, sections && sections.sections || []);
+    });
+  }
+}
+
+function renderMemberships(users, groups, memberships) {
+  const panel = document.getElementById('memberships-panel');
+  window.__usersCache = users;
+  if (!panel) return;
+  const map = new Map();
+  memberships.forEach(m => {
+    const arr = map.get(m.user_id) || new Set();
+    arr.add(m.group_id);
+    map.set(m.user_id, arr);
+  });
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  trh.innerHTML = `<th>用户</th>${groups.map(g => `<th>${escapeHtml(g.name)}</th>`).join('')}`;
+  thead.appendChild(trh);
+  table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  users.forEach(u => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(u.username)}</td>` + groups.map(g => {
+      const checked = map.get(u.id) && map.get(u.id).has(g.id);
+      return `<td><input type="checkbox" data-uid="${u.id}" data-gid="${g.id}" ${checked ? 'checked' : ''}></td>`;
+    }).join('');
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  panel.innerHTML = '';
+  panel.appendChild(table);
+  panel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const uid = parseInt(cb.getAttribute('data-uid'), 10);
+      const gid = parseInt(cb.getAttribute('data-gid'), 10);
+      if (cb.checked) {
+        await request('/admin/memberships', { method: 'POST', body: { user_id: uid, group_id: gid } });
+      } else {
+        await request('/admin/memberships/delete', { method: 'POST', body: { user_id: uid, group_id: gid } });
+      }
+    });
+  });
+}
+
+function renderSections(groups, sections) {
+  const panel = document.getElementById('sections-panel');
+  if (!panel) return;
+  if (!sections || sections.length === 0) {
+    panel.textContent = '暂无二级节点';
+    return;
+  }
+  const wrap = document.createElement('div');
+  sections.forEach(s => {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.gap = '8px';
+    row.style.alignItems = 'center';
+    const label = document.createElement('span');
+    label.textContent = s.title;
+    const sel = document.createElement('select');
+    const optPublic = document.createElement('option');
+    optPublic.value = '';
+    optPublic.textContent = '公开（未分组）';
+    sel.appendChild(optPublic);
+    groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = String(g.id);
+      opt.textContent = g.name;
+      sel.appendChild(opt);
+    });
+    if (s.group_id) sel.value = String(s.group_id); else sel.value = '';
+    const btn = document.createElement('button');
+    btn.textContent = '保存';
+    btn.addEventListener('click', async () => {
+      const gid = sel.value ? parseInt(sel.value, 10) : null;
+      await request(`/admin/sections/${s.id}/assign`, { method: 'POST', body: { group_id: gid } });
+    });
+    row.appendChild(label);
+    row.appendChild(sel);
+    row.appendChild(btn);
+    wrap.appendChild(row);
+  });
+  panel.innerHTML = '';
+  panel.appendChild(wrap);
 }
 
 

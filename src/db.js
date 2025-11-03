@@ -34,6 +34,31 @@ CREATE TABLE IF NOT EXISTS notes (
   lock_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   lock_expires_at TEXT
 );
+
+-- 应用设置（键值对）
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- 用户组
+CREATE TABLE IF NOT EXISTS groups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
+
+-- 用户与组的关联（多对多）
+CREATE TABLE IF NOT EXISTS user_groups (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  PRIMARY KEY (user_id, group_id)
+);
+
+-- 二级节点到组的一对一授权（未配置表示公开）
+CREATE TABLE IF NOT EXISTS section_group (
+  section_note_id INTEGER PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
+  group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE
+);
 `);
 
 // Ensure "keywords" column exists for existing databases created before this field was added
@@ -59,6 +84,16 @@ try {
     db.prepare("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0").run();
   }
 } catch (err) {
+  // ignore
+}
+
+// Ensure default auth mode setting exists
+try {
+  const existing = db.prepare("SELECT value FROM settings WHERE key = 'auth_mode'").get();
+  if (!existing) {
+    db.prepare("INSERT INTO settings(key, value) VALUES('auth_mode', 'team')").run();
+  }
+} catch (_) {
   // ignore
 }
 

@@ -135,18 +135,19 @@ function getUserGroupIds(userId) {
 }
 
 function getAllSecondLevelSectionIds() {
-  // 二级节点：其父节点为根（parent_id IS NULL）
+  // 仅管理员拥有的二级节点（其父为根）
   const rows = db.prepare(`
     SELECT n.id
     FROM notes n
     JOIN notes p ON p.id = n.parent_id
+    JOIN users u ON u.id = n.owner_id AND u.is_admin = 1
     WHERE p.parent_id IS NULL
   `).all();
   return new Set(rows.map(r => r.id));
 }
 
 function getAllowedSectionIdsForUser(userId) {
-  // 公共（未授权）二级节点 + 属于用户组的已授权二级节点
+  // 公共（未授权）二级节点 + 属于用户组的已授权二级节点（仅管理员拥有的二级节点）
   const allSections = getAllSecondLevelSectionIds();
   const groupRows = db.prepare('SELECT section_note_id, group_id FROM section_group').all();
   const sectionToGroup = new Map(groupRows.map(r => [r.section_note_id, r.group_id]));
@@ -398,8 +399,16 @@ app.get('/api/notes', authenticate, (req, res) => {
   if (mode === 'personal') {
     notes = rows.filter(r => Number(r.owner_id) === Number(req.user.id));
   } else {
-    // Team mode: visible = own notes OR notes owned by admin
-    notes = rows.filter(r => Number(r.owner_id) === Number(req.user.id) || isAdminId(r.owner_id));
+    // Team mode: own notes OR notes under allowed admin-owned sections; include admin-owned roots for structure
+    const allowedSections = getAllowedSectionIdsForUser(req.user.id);
+    const idToParent = buildIdToParentMap();
+    notes = rows.filter(r => {
+      if (Number(r.owner_id) === Number(req.user.id)) return true;
+      if (r.parent_id == null) return isAdminId(r.owner_id); // 仅包含管理员拥有的根
+      const secId = computeSecondLevelSectionId(r.id, idToParent);
+      if (secId == null) return false;
+      return allowedSections.has(secId);
+    });
   }
   res.json({ tree: buildTree(notes.map(({ owner_id, ...rest }) => rest)) });
 });
@@ -412,8 +421,15 @@ app.get('/api/keywords', authenticate, (req, res) => {
   if (mode === 'personal') {
     rows = rowsAll.filter(r => Number(r.owner_id) === Number(req.user.id));
   } else {
-    // Team mode: own notes or admin-owned notes
-    rows = rowsAll.filter(r => Number(r.owner_id) === Number(req.user.id) || isAdminId(r.owner_id));
+    const allowedSections = getAllowedSectionIdsForUser(req.user.id);
+    const idToParent = buildIdToParentMap();
+    rows = rowsAll.filter(r => {
+      if (Number(r.owner_id) === Number(req.user.id)) return true;
+      if (r.parent_id == null) return false; // 关键字不需要显示根
+      const secId = computeSecondLevelSectionId(r.id, idToParent);
+      if (secId == null) return false;
+      return allowedSections.has(secId);
+    });
   }
   const map = new Map(); // keyword -> array of notes
   rows.forEach((row) => {
@@ -460,9 +476,21 @@ app.get('/api/notes/:id', authenticate, (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
   } else {
-    // Team mode: allow if owner is self or admin
-    if (!(Number(note.owner_id) === Number(req.user.id) || isAdminId(note.owner_id))) {
-      return res.status(403).json({ error: 'Forbidden' });
+    // Team mode: allow if own or under allowed admin-owned section
+    if (Number(note.owner_id) === Number(req.user.id)) {
+      // ok
+    } else {
+      if (note.parent_id == null) {
+        // 根节点不对普通用户暴露（仅树结构中包含管理员根以承载结构），单篇访问仍拒绝
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      const idToParent = buildIdToParentMap();
+      const secId = computeSecondLevelSectionId(note.id, idToParent);
+      if (secId == null) return res.status(403).json({ error: 'Forbidden' });
+      const allowedSections = getAllowedSectionIdsForUser(req.user.id);
+      if (!allowedSections.has(secId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
     }
   }
   let content;
@@ -510,9 +538,15 @@ app.post('/api/notes', authenticate, (req, res) => {
         return res.status(403).json({ error: 'Forbidden' });
       }
     } else {
-      // Team mode: parent must be visible → owner is self or admin
-      if (!(Number(parent.owner_id) === Number(req.user.id) || isAdminId(parent.owner_id))) {
-        return res.status(403).json({ error: 'Forbidden' });
+      // Team mode: parent must be own, or lie under an allowed admin-owned section
+      if (Number(parent.owner_id) !== Number(req.user.id)) {
+        const idToParent = buildIdToParentMap();
+        const secId = computeSecondLevelSectionId(parent.id, idToParent);
+        if (secId == null) return res.status(403).json({ error: 'Forbidden' });
+        const allowedSections = getAllowedSectionIdsForUser(req.user.id);
+        if (!allowedSections.has(secId)) {
+          return res.status(403).json({ error: 'Forbidden' });
+        }
       }
     }
   }
@@ -659,15 +693,22 @@ app.get('/api/search', authenticate, (req, res) => {
     }
     total = rows.length;
   } else {
-    // Team mode: filter to own or admin-owned
+    // Team mode: own or under allowed admin-owned section
     const ids = rowsAll.map(r => r.id);
     if (ids.length) {
       const placeholders = ids.map(() => '?').join(',');
-      const owners = db.prepare(`SELECT id, owner_id FROM notes WHERE id IN (${placeholders})`).all(...ids);
+      const owners = db.prepare(`SELECT id, owner_id, parent_id FROM notes WHERE id IN (${placeholders})`).all(...ids);
       const idToOwner = new Map(owners.map(o => [o.id, o.owner_id]));
+      const idToParent = new Map(owners.map(o => [o.id, o.parent_id]));
+      const allowedSections = getAllowedSectionIdsForUser(req.user.id);
       rows = rowsAll.filter(r => {
         const ownerId = idToOwner.get(r.id);
-        return Number(ownerId) === Number(req.user.id) || isAdminId(ownerId);
+        if (Number(ownerId) === Number(req.user.id)) return true;
+        const parentId = idToParent.get(r.id) ?? null;
+        if (parentId == null) return false;
+        const secId = computeSecondLevelSectionId(r.id, idToParent);
+        if (secId == null) return false;
+        return allowedSections.has(secId);
       });
     } else {
       rows = [];
@@ -831,6 +872,7 @@ app.get('/api/admin/sections', authenticate, requireAdmin, (req, res) => {
       SELECT n.id, n.title, sg.group_id
       FROM notes n
       JOIN notes p ON p.id = n.parent_id
+      JOIN users u ON u.id = n.owner_id AND u.is_admin = 1
       LEFT JOIN section_group sg ON sg.section_note_id = n.id
       WHERE p.parent_id IS NULL
       ORDER BY n.title ASC
@@ -993,12 +1035,15 @@ app.post('/api/notes/:id/move', authenticate, requireNoteWriteAccess, (req, res)
     if (!parent) {
       return res.status(400).json({ error: 'Parent note not found' });
     }
-    // 新父节点可见性（团队模式：父节点必须属于当前用户或管理员）
+    // 新父节点可见性（团队模式：父节点必须属于自己或位于允许的管理员二级节点下）
     if (getAuthMode() === 'team') {
       const ownerRow = db.prepare('SELECT owner_id FROM notes WHERE id = ?').get(parentId);
-      if (ownerRow) {
-        const oid = ownerRow.owner_id;
-        if (!(Number(oid) === Number(req.user.id) || isAdminId(oid))) {
+      if (ownerRow && Number(ownerRow.owner_id) !== Number(req.user.id)) {
+        const idToParent = buildIdToParentMap();
+        const secId = computeSecondLevelSectionId(parentId, idToParent);
+        if (secId == null) return res.status(403).json({ error: 'Forbidden to move under target' });
+        const allowed = getAllowedSectionIdsForUser(req.user.id);
+        if (!allowed.has(secId)) {
           return res.status(403).json({ error: 'Forbidden to move under target' });
         }
       }

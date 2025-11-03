@@ -339,39 +339,65 @@ function renderSections(groups, sections) {
     panel.textContent = '暂无二级节点';
     return;
   }
-  const wrap = document.createElement('div');
-  sections.forEach(s => {
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.gap = '8px';
-    row.style.alignItems = 'center';
-    const label = document.createElement('span');
-    label.textContent = s.title;
-    const sel = document.createElement('select');
-    const optPublic = document.createElement('option');
-    optPublic.value = '';
-    optPublic.textContent = '公开（未分组）';
-    sel.appendChild(optPublic);
-    groups.forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = String(g.id);
-      opt.textContent = g.name;
-      sel.appendChild(opt);
-    });
-    if (s.group_id) sel.value = String(s.group_id); else sel.value = '';
-    const btn = document.createElement('button');
-    btn.textContent = '保存';
-    btn.addEventListener('click', async () => {
-      const gid = sel.value ? parseInt(sel.value, 10) : null;
-      await request(`/admin/sections/${s.id}/assign`, { method: 'POST', body: { group_id: gid } });
-    });
-    row.appendChild(label);
-    row.appendChild(sel);
-    row.appendChild(btn);
-    wrap.appendChild(row);
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const trh = document.createElement('tr');
+  // 第一列：二级节点名；后续列：公开 + 各用户组
+  const thName = document.createElement('th');
+  thName.textContent = '二级节点';
+  trh.appendChild(thName);
+  const thPublic = document.createElement('th');
+  thPublic.textContent = '公开';
+  trh.appendChild(thPublic);
+  groups.forEach(g => {
+    const th = document.createElement('th');
+    th.textContent = g.name;
+    trh.appendChild(th);
   });
+  thead.appendChild(trh);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  sections.forEach(s => {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.textContent = s.title;
+    tr.appendChild(tdName);
+    // 单选：公开
+    const tdPublic = document.createElement('td');
+    const radioPublic = document.createElement('input');
+    radioPublic.type = 'radio';
+    radioPublic.name = `sec-${s.id}`; // 同一行互斥
+    radioPublic.value = '';
+    radioPublic.checked = !s.group_id;
+    radioPublic.addEventListener('change', async () => {
+      if (radioPublic.checked) {
+        await request(`/admin/sections/${s.id}/assign`, { method: 'POST', body: { group_id: null } });
+      }
+    });
+    tdPublic.appendChild(radioPublic);
+    tr.appendChild(tdPublic);
+    // 单选：各组
+    groups.forEach(g => {
+      const td = document.createElement('td');
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = `sec-${s.id}`;
+      radio.value = String(g.id);
+      radio.checked = s.group_id && String(s.group_id) === String(g.id);
+      radio.addEventListener('change', async () => {
+        if (radio.checked) {
+          await request(`/admin/sections/${s.id}/assign`, { method: 'POST', body: { group_id: parseInt(radio.value, 10) } });
+        }
+      });
+      td.appendChild(radio);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
   panel.innerHTML = '';
-  panel.appendChild(wrap);
+  panel.appendChild(table);
 }
 
 

@@ -772,6 +772,61 @@ app.get('/api/admin/db/tables', authenticate, requireAdmin, (req, res) => {
   }
 });
 
+// Admin: 磁盘剩余空间
+app.get('/api/admin/disk/free', authenticate, requireAdmin, async (req, res) => {
+  try {
+    if (!checkDiskSpace) {
+      return res.json({ supported: false, freeBytes: null, totalBytes: null });
+    }
+    const ROOT = path.join(__dirname, '..');
+    const info = await checkDiskSpace(ROOT);
+    const freeBytes = Number(info && info.free ? info.free : 0);
+    const totalBytes = Number(info && info.size ? info.size : 0);
+    res.json({ supported: true, freeBytes, totalBytes });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to query disk space' });
+  }
+});
+
+// Admin: 上传目录（附件/图片）概览
+app.get('/api/admin/uploads/summary', authenticate, requireAdmin, (req, res) => {
+  try {
+    function safeStat(p) { try { return fs.statSync(p); } catch (_) { return null; } }
+    function walk(dir) {
+      const st = safeStat(dir);
+      if (!st || !st.isDirectory()) return { files: 0, bytes: 0, byExt: {} };
+      let files = 0;
+      let bytes = 0;
+      const byExt = {};
+      let entries = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { entries = []; }
+      for (const ent of entries) {
+        const full = path.join(dir, ent.name);
+        if (ent.isFile()) {
+          const fst = safeStat(full);
+          const size = (fst && fst.size) || 0;
+          files += 1;
+          bytes += size;
+          const ext = path.extname(ent.name).toLowerCase() || '';
+          byExt[ext] = (byExt[ext] || 0) + 1;
+        } else if (ent.isDirectory()) {
+          const sub = walk(full);
+          files += sub.files;
+          bytes += sub.bytes;
+          for (const k of Object.keys(sub.byExt)) {
+            byExt[k] = (byExt[k] || 0) + sub.byExt[k];
+          }
+        }
+      }
+      return { files, bytes, byExt };
+    }
+    const summary = walk(UPLOAD_DIR);
+    res.json({ fileCount: summary.files, totalBytes: summary.bytes, byExt: summary.byExt });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to load uploads summary' });
+  }
+});
+
 // ---- Admin: Authorization Settings & Groups ----
 app.get('/api/admin/settings', authenticate, requireAdmin, (req, res) => {
   try {

@@ -45,6 +45,28 @@ function renderDbSummary(summary) {
   el.textContent = `用户数：${summary.users}，笔记数：${summary.notes}，数据库大小：${formatBytes(summary.dbSizeBytes || 0)}`;
 }
 
+function renderUploadsSummary(summary) {
+  const el = document.getElementById('uploads-summary');
+  if (!el) return;
+  const count = summary && typeof summary.fileCount === 'number' ? summary.fileCount : 0;
+  const bytes = summary && typeof summary.totalBytes === 'number' ? summary.totalBytes : 0;
+  el.textContent = `文件数量：${count}，总大小：${formatBytes(bytes)}`;
+}
+
+function renderDiskSummary(info) {
+  const el = document.getElementById('disk-summary');
+  if (!el) return;
+  const free = info && typeof info.freeBytes === 'number' ? info.freeBytes : null;
+  if (free == null) {
+    el.textContent = '未知（无法检测）';
+    el.style.color = '';
+    return;
+  }
+  el.textContent = `可用空间：${formatBytes(free)}`;
+  const threshold = 1024 * 1024 * 1024; // 1024MB
+  el.style.color = free < threshold ? 'red' : '';
+}
+
 function renderUsers(list) {
   const tbody = document.getElementById('users-tbody');
   tbody.innerHTML = '';
@@ -116,16 +138,20 @@ async function init() {
     return;
   }
   try {
-    const [summary, usersRes, tablesRes, settingsRes, groupsRes, membershipsRes, sectionsRes] = await Promise.all([
+    const [summary, usersRes, tablesRes, settingsRes, groupsRes, membershipsRes, sectionsRes, uploadsRes, diskRes] = await Promise.all([
       request('/admin/db/summary'),
       request('/admin/users'),
       request('/admin/db/tables'),
       request('/admin/settings'),
       request('/admin/groups'),
       request('/admin/memberships'),
-      request('/admin/sections')
+      request('/admin/sections'),
+      request('/admin/uploads/summary'),
+      request('/admin/disk/free')
     ]);
     renderDbSummary(summary);
+    renderUploadsSummary(uploadsRes || {});
+    renderDiskSummary(diskRes || {});
     renderUsers(usersRes.users || []);
     renderTablesInfo((tablesRes && tablesRes.tables) || {});
     setupAuthMode(settingsRes && settingsRes.auth_mode);

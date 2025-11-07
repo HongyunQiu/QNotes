@@ -19,6 +19,10 @@
     <script src="vendor/editorjs-codeflask/editorjs-codeflask.bundle.js"></script>
     <script src="vendor/editorjs-warehouse/warehouse.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/editorjs-color-picker@1.0.8/dist/index.umd.js"></script>
+    <!-- jsPDF UMD (window.jspdf.jsPDF) -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <!-- html2canvas (window.html2canvas) -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script>
       // 检查EditorJS是否加载成功
       window.addEventListener('load', () => {
@@ -98,6 +102,7 @@
             <button id="save-btn" disabled>保存</button>
             <button id="clear-btn">清空</button>
             <button id="delete-btn" class="danger" disabled>删除</button>
+            <button id="export-pdf-btn" title="导出为 PDF">导出PDF</button>
           </div>
         </div>
         <div id="lock-info" class="lock-info hidden"></div>

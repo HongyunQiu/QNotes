@@ -66,3 +66,5 @@ Environment variables (optional):
 - Editor.js tool updates: `public/index.html` (CDN), `public/app.js` (tools map + whitelist)
 - API changes: `src/server.js`, schema in `src/db.js`
 
+### Editor.js document
+- visit https://editorjs.io/base-concepts/

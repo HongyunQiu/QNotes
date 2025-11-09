@@ -95,7 +95,9 @@
           <input id="note-title" placeholder="无标题笔记" />
           <div class="editor-actions">
             <div class="save-status" title="保存状态">
-              <span id="save-indicator" class="save-indicator status-ok"></span>
+              <span id="save-indicator" class="save-indicator status-ok" aria-live="polite">
+                <span id="save-countdown-text" class="save-countdown-text"></span>
+              </span>
               <span id="save-status-text" class="save-status-text">已就绪</span>
             </div>
             <label class="autosave-toggle" title="开启/关闭每60秒自动保存">

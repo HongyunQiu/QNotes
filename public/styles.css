@@ -234,16 +234,45 @@ main.app {
 
 .save-indicator {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 22px;
+  height: 22px;
+  position: relative;
   border-radius: 50%;
-  background: #22c55e; /* 绿色：就绪 */
+  /* 进度圈（默认0度） */
+  background: conic-gradient(var(--progress-color, #22c55e) calc(var(--progress, 0deg)), #e5e7eb 0);
   box-shadow: 0 0 0 2px rgba(0,0,0,0.05) inset;
 }
+.save-indicator::after {
+  /* 内部镂空，形成环形视觉 */
+  content: "";
+  position: absolute;
+  inset: 3px;
+  background: #fff;
+  border-radius: 50%;
+}
+.save-countdown-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #374151;
+  pointer-events: none;
+  /* 默认隐藏，仅计时中显示 */
+  opacity: 0;
+  transition: opacity .15s ease;
+  z-index: 1;
+}
+.save-indicator[data-counting="true"] .save-countdown-text {
+  opacity: 1;
+}
 
-.save-indicator.status-ok { background: #22c55e; }
-.save-indicator.status-saving { background: #f59e0b; }
-.save-indicator.status-error { background: #ef4444; }
+/* 不同状态只影响环的主色 */
+.save-indicator.status-ok { --progress-color: #22c55e; }
+.save-indicator.status-saving { --progress-color: #f59e0b; }
+.save-indicator.status-error { --progress-color: #ef4444; }
 
 .save-status-text {
   font-size: 0.85rem;

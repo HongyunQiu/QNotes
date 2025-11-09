@@ -18,6 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@editorjs/attaches@latest"></script>
     <script src="vendor/editorjs-codeflask/editorjs-codeflask.bundle.js"></script>
     <script src="vendor/editorjs-warehouse/warehouse.umd.js"></script>
+    <script src="vendor/editorjs-password/password.umd.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/editorjs-color-picker@1.0.8/dist/index.umd.js"></script>
     <!-- jsPDF UMD (window.jspdf.jsPDF) -->
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -39,9 +40,10 @@
         console.log('CodeFlask:', typeof window.editorjsCodeflask);
         console.log('Warehouse:', typeof window.Warehouse);
         console.log('ColorPicker:', typeof window.ColorPicker);
+        console.log('Password:', typeof window.Password);
         
         // 检查所有必需的插件
-        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'Table', 'ImageTool', 'MermaidTool', 'CodeFlask', 'Warehouse', 'ColorPicker'];
+        const requiredPlugins = ['EditorJS', 'Header', 'Paragraph', 'Checklist', 'Quote', 'Delimiter', 'Table', 'ImageTool', 'MermaidTool', 'CodeFlask', 'Warehouse', 'ColorPicker', 'Password'];
         const missingPlugins = [];
         
         if (typeof window.EditorJS === 'undefined') missingPlugins.push('EditorJS');
@@ -57,6 +59,7 @@
         if (typeof window.editorjsCodeflask === 'undefined') missingPlugins.push('CodeFlask');
         if (typeof window.Warehouse === 'undefined') missingPlugins.push('Warehouse');
         if (typeof window.ColorPicker === 'undefined') missingPlugins.push('ColorPicker'); 
+        if (typeof window.Password === 'undefined') missingPlugins.push('Password');
         
         if (missingPlugins.length > 0) {
           console.error('以下插件加载失败:', missingPlugins);

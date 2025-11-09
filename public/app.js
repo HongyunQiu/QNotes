@@ -1135,6 +1135,7 @@ function setupEditor() {
     console.log('Warehouse可用:', typeof window.Warehouse);
     console.log('ColorPicker可用:', typeof window.ColorPicker);
     console.log('Password可用:', typeof window.Password);
+    console.log('Marker可用:', typeof window.Marker);
     
     // 检查插件是否加载
     if (typeof window.EditorJS === 'undefined') {
@@ -1178,6 +1179,9 @@ function setupEditor() {
     }
     if (typeof window.Password === 'undefined') {
       throw new Error('Password 插件未加载');
+    }
+    if (typeof window.Marker === 'undefined') {
+      throw new Error('Marker 插件未加载');
     }
     
     // 根据测试验证成功的配置
@@ -1258,6 +1262,15 @@ function setupEditor() {
       },
       warehouse: {
         class: window.Warehouse,
+      },
+      marker: {
+        class: window.Marker,
+        shortcut: 'CMD+SHIFT+M',
+        config: {
+          colors: ['yellow', 'green', 'blue', 'pink', 'orange', 'purple'],
+          defaultColor: 'yellow',
+          columns: 7
+        }
       },
       colorPicker: {
         class: window.ColorPicker && window.ColorPicker.default ? window.ColorPicker.default : window.ColorPicker,

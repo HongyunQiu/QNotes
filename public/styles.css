@@ -36,6 +36,34 @@ body {
   flex: 1;
 }
 
+.conn-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-left: 1rem;
+}
+.conn-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d1d5db; /* unknown */
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.06) inset;
+}
+.conn-dot.ok { background: #22c55e; }
+.conn-dot.warn { background: #f59e0b; }
+.conn-dot.error { background: #ef4444; }
+.conn-dot.offline { background: #9ca3af; }
+.conn-text {
+  user-select: none;
+}
+
 .topbar .user-info {
   display: flex;
   align-items: center;

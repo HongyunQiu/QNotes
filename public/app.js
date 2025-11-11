@@ -21,6 +21,139 @@ let autosaveIntervalMs = 60000;
 let autosaveCountdownTick = null;
 let lastAutosaveTickTs = 0; // 上一次自动保存触发的时间基点（用于计算下次剩余）
 
+// 连接心跳与状态
+let netOnline = navigator.onLine;
+let authValid = !!authToken;
+let netHbTimer = null;
+let authHbTimer = null;
+let netBackoff = 0;
+let authBackoff = 0;
+const NET_BASE_VISIBLE_MS = 15000;
+const NET_BASE_HIDDEN_MS = 60000;
+const AUTH_BASE_VISIBLE_MS = 60000;
+const AUTH_BASE_HIDDEN_MS = 300000; // 5 分钟
+const NET_TIMEOUT_MS = 3000;
+const AUTH_TIMEOUT_MS = 4000;
+
+function getElSafe(id) { try { return document.getElementById(id); } catch (_) { return null; } }
+
+function updateConnIndicators() {
+  const netDot = getElSafe('net-dot');
+  const netText = getElSafe('net-text');
+  const authDot = getElSafe('auth-dot');
+  const authText = getElSafe('auth-text');
+  if (netDot) {
+    netDot.classList.remove('ok', 'warn', 'error', 'offline');
+    netDot.classList.add(netOnline ? 'ok' : 'offline');
+  }
+  if (netText) {
+    netText.textContent = netOnline ? '网络正常' : '网络不可用';
+  }
+  if (authDot) {
+    authDot.classList.remove('ok', 'warn', 'error', 'offline');
+    // 仅在网络可用且持有token时评估鉴权；否则置为灰
+    if (!netOnline || !authToken) {
+      authDot.classList.add('offline');
+    } else {
+      authDot.classList.add(authValid ? 'ok' : 'error');
+    }
+  }
+  if (authText) {
+    if (!authToken) {
+      authText.textContent = '未登录';
+    } else if (!netOnline) {
+      authText.textContent = '无法校验';
+    } else {
+      authText.textContent = authValid ? '鉴权有效' : '鉴权失效';
+    }
+  }
+}
+
+function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  const merged = { ...options, signal: controller.signal, cache: 'no-store', keepalive: true };
+  return fetch(url, merged).finally(() => clearTimeout(id));
+}
+
+function currentNetInterval() {
+  const base = document.visibilityState === 'visible' ? NET_BASE_VISIBLE_MS : NET_BASE_HIDDEN_MS;
+  const delay = base * Math.pow(2, Math.min(4, netBackoff));
+  return Math.min(delay, 5 * 60 * 1000);
+}
+function currentAuthInterval() {
+  const base = document.visibilityState === 'visible' ? AUTH_BASE_VISIBLE_MS : AUTH_BASE_HIDDEN_MS;
+  const delay = base * Math.pow(2, Math.min(4, authBackoff));
+  return Math.min(delay, 10 * 60 * 1000);
+}
+
+function scheduleNetHeartbeat(delay) {
+  if (netHbTimer) clearTimeout(netHbTimer);
+  netHbTimer = setTimeout(runNetHeartbeat, Math.max(500, delay));
+}
+async function runNetHeartbeat() {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE}/../healthz`, { method: 'GET' }, NET_TIMEOUT_MS);
+    if (res && (res.status === 204 || res.ok)) {
+      netOnline = true;
+      netBackoff = 0;
+    } else {
+      netOnline = false;
+      netBackoff = Math.min(4, netBackoff + 1);
+    }
+  } catch (_) {
+    netOnline = false;
+    netBackoff = Math.min(4, netBackoff + 1);
+  } finally {
+    updateConnIndicators();
+    scheduleNetHeartbeat(currentNetInterval());
+  }
+}
+
+function scheduleAuthHeartbeat(delay) {
+  if (authHbTimer) clearTimeout(authHbTimer);
+  authHbTimer = setTimeout(runAuthHeartbeat, Math.max(500, delay));
+}
+async function runAuthHeartbeat() {
+  // 仅在网络可用且存在token时执行
+  if (!authToken || !netOnline) {
+    updateConnIndicators();
+    scheduleAuthHeartbeat(currentAuthInterval());
+    return;
+  }
+  try {
+    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
+    const res = await fetchWithTimeout(`${API_BASE}/auth/ping`, { method: 'GET', headers }, AUTH_TIMEOUT_MS);
+    if (res && res.status === 204) {
+      authValid = true;
+      authBackoff = 0;
+    } else if (res && (res.status === 401 || res.status === 403)) {
+      authValid = false;
+      authBackoff = 0; // 立即保持较短探测，提示尽快恢复
+    } else {
+      // 其他错误视作暂时失败，退避
+      authBackoff = Math.min(4, authBackoff + 1);
+    }
+  } catch (_) {
+    // 网络错误也会影响网络状态判断
+    netOnline = false;
+    authBackoff = Math.min(4, authBackoff + 1);
+  } finally {
+    updateConnIndicators();
+    scheduleAuthHeartbeat(currentAuthInterval());
+  }
+}
+
+function startHeartbeat() {
+  updateConnIndicators();
+  scheduleNetHeartbeat(500);
+  scheduleAuthHeartbeat(1000);
+}
+function stopHeartbeat() {
+  if (netHbTimer) { clearTimeout(netHbTimer); netHbTimer = null; }
+  if (authHbTimer) { clearTimeout(authHbTimer); authHbTimer = null; }
+}
+
 function getEl(id) {
   return document.getElementById(id);
 }
@@ -414,13 +547,29 @@ async function request(path, options = {}) {
       headers,
       body: options.body instanceof FormData ? options.body : options.body ? JSON.stringify(options.body) : undefined
     });
+    // 连接成功，标记网络可达
+    netOnline = true;
+    if (res.status === 401 || res.status === 403) {
+      authValid = false;
+      updateConnIndicators();
+    }
     if (!res.ok) {
       const errorText = await res.text();
       throw new Error(errorText || res.statusText);
     }
     if (res.status === 204) return null;
+    // 成功的受保护接口可视作鉴权有效
+    if (path !== '/auth/ping' && path !== '/../healthz' && authToken) {
+      authValid = true;
+      updateConnIndicators();
+    }
     return res.json();
   } catch (err) {
+    // 可能的网络错误
+    if (err && (err.name === 'TypeError' || /NetworkError|Failed to fetch|load failed|abort/i.test(String(err && err.message)))) {
+      netOnline = false;
+      updateConnIndicators();
+    }
     throw err;
   }
 }
@@ -1540,6 +1689,9 @@ function setupEventListeners() {
         await persistNote({ silent: true, reason: 'visibilitychange' });
       }
     }
+    // 调整心跳频率
+    scheduleNetHeartbeat(0);
+    scheduleAuthHeartbeat(0);
   });
 
   // 搜索入口
@@ -1653,6 +1805,10 @@ function setupEventListeners() {
       closeSearch();
     }
   });
+
+  // 浏览器在线/离线事件
+  window.addEventListener('online', () => { netOnline = true; updateConnIndicators(); scheduleNetHeartbeat(0); scheduleAuthHeartbeat(0); });
+  window.addEventListener('offline', () => { netOnline = false; updateConnIndicators(); });
 }
 
 function buildKeywordIndexList(index, parentEl) {
@@ -1803,6 +1959,7 @@ async function initializeApp() {
     // 延迟初始化编辑器，等待用户点击开始编辑
     setupEventListeners();
     setupResizer();
+    startHeartbeat();
     await tryAutoLogin();
     console.log('应用初始化完成');
   } catch (err) {

@@ -40,6 +40,12 @@ const upload = multer({ storage });
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// 健康检查（无需鉴权、零DB、轻量响应）
+app.get('/healthz', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(204).end();
+});
+
 function generateToken(user) {
   return jwt.sign({ id: user.id, username: user.username, is_admin: !!user.is_admin }, JWT_SECRET, {
     expiresIn: '12h'
@@ -356,6 +362,12 @@ app.get('/api/profile', authenticate, (req, res) => {
   } catch (e) {
     res.status(500).json({ error: 'Profile fetch failed' });
   }
+});
+
+// 鉴权心跳（仅做JWT校验，不访问DB；通过则204）
+app.get('/api/auth/ping', authenticate, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.status(204).end();
 });
 
 function buildTree(notes) {

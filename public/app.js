@@ -1069,18 +1069,20 @@ async function createNote() {
       showMessage('创建失败', 'error');
     }
   };
-  const handleDiscard = () => {
-    parentUl.removeChild(tempLi);
-    cleanupIfEmpty(parentLi);
+  const handleBlurConfirm = () => {
+    // 失焦时确认（与回车一致）；避免重复触发
+    input.removeEventListener('blur', handleBlurConfirm);
+    handleSave();
   };
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      input.removeEventListener('blur', handleDiscard);
+      input.removeEventListener('blur', handleBlurConfirm);
       handleSave();
     }
   });
-  input.addEventListener('blur', handleDiscard);
+  // 点击页面任意位置导致输入框失焦时，执行确认
+  input.addEventListener('blur', handleBlurConfirm);
   tempLi.addEventListener('click', (e) => e.stopPropagation());
 }
 

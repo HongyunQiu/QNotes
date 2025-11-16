@@ -1062,6 +1062,8 @@ async function createNote() {
       });
       await loadTree();
       await selectNote(note.id);
+      // 新建后自动进入编辑模式
+      await startEditing();
     } catch (err) {
       console.error(err);
       parentUl.removeChild(tempLi);

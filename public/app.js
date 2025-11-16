@@ -791,6 +791,10 @@ async function selectNote(id, element) {
 async function loadNote(id) {
   try {
     const { note } = await request(`/notes/${id}`);
+    // 若在请求往返期间用户已切换到其他笔记，则放弃本次渲染，避免旧内容覆盖新内容
+    if (currentNoteId !== id) {
+      return;
+    }
     document.getElementById('note-title').value = note.title;
     currentKeywords = Array.isArray(note.keywords) ? note.keywords : [];
     renderKeywords();
@@ -817,7 +821,8 @@ async function loadNote(id) {
       });
     }
     
-    editorInstance.render(data);
+    // 等待渲染完成，避免后续状态切换/其他渲染抢写导致内容错乱
+    await editorInstance.render(data);
     lastRenderedEditorData = data;
     resetDirtyFlag();
     if (!lastSaveHadError) setSaveIndicator('status-ok', '已就绪');
